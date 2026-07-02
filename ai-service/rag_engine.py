@@ -17,7 +17,7 @@ class RAGEngine:
         
         # Подключение к ChromaDB
         self.client = chromadb.PersistentClient(path=self.db_path)
-        self.collection = self.client.get_collection("safety_checklists")
+        self.collection = self.client.get_collection("safety_checklist_db")
         
         # Инициализация GigaChat
         self.giga = GigaChat(
