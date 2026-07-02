@@ -1,9 +1,10 @@
 /**
  * App.jsx
  * Корневой компонент. Собирает Sidebar + ChatHeader + ChatWindow + MessageInput.
+ * с поддержкой AI стриминга
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatHeader from './components/ChatHeader';
 import ChatWindow from './components/ChatWindow';
@@ -23,12 +24,24 @@ export default function App() {
     sendMessage,
   } = useChats();
 
+  // Состояния для стриминга
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingContent, setStreamingContent] = useState('');
+
   const activeChat = chats.find(c => c.id === activeChatId) || null;
 
   const handleSelect = (id) => setActiveChatId(id);
   const handleCreate = async () => await createChat();
   const handleDelete = async (id) => await deleteChat(id);
-  const handleSend   = async (text) => await sendMessage(text);
+
+  // Обертка для отправки сообщения с поддержкой стриминга
+  const handleSend = async (text) => {
+    if (!text.trim() || sending) return;
+
+    // Используем существующую функцию sendMessage из хука
+    // Она уже умеет работать со стримингом
+    await sendMessage(text);
+  };
 
   return (
     <div style={styles.root}>
@@ -42,13 +55,21 @@ export default function App() {
 
       <div style={styles.main}>
         <ChatHeader chat={activeChat} messagesCount={messages.length} />
+        
         <ChatWindow
           messages={messages}
           loading={loading}
           activeChatId={activeChatId}
+          onSendMessage={handleSend}
+          isStreaming={isStreaming}
+          streamingContent={streamingContent}
         />
+        
         {activeChatId && (
-          <MessageInput onSend={handleSend} disabled={sending} />
+          <MessageInput 
+            onSend={handleSend} 
+            disabled={sending || isStreaming} 
+          />
         )}
       </div>
     </div>

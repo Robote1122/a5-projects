@@ -1,32 +1,34 @@
 #!/bin/bash
-# ═══════════════════════════════════════════════════════════
-# deploy.sh — полный деплой Vzmakh Chat на сервер
-# Запускать из корня проекта: bash deploy.sh
-# ═══════════════════════════════════════════════════════════
+# deploy.sh — Docker деплой
 
 set -e
 
-echo "📦 [1/5] Установка зависимостей бэкенда..."
-cd server && npm install --production && cd ..
+echo "🐳 [1/5] Остановка старых контейнеров..."
+docker-compose down
 
-echo "📦 [2/5] Установка зависимостей фронтенда..."
-cd client && npm install && npm run build && cd ..
+echo "📦 [2/5] Сборка Docker образов..."
+docker-compose build --no-cache
 
-echo "🗂️  [3/5] Создание папки логов..."
-mkdir -p logs
+echo "🗄️  [3/5] Подготовка данных..."
+mkdir -p server/data
+mkdir -p ai-service/data
 
-echo "🚀 [4/5] Запуск/рестарт через PM2..."
-if pm2 list | grep -q "vzmakh-chat"; then
-  pm2 reload vzmakh-chat --update-env
-else
-  pm2 start ecosystem.config.js
-  pm2 save
+# Копируем ChromaDB если существует
+if [ -d "ai-service/safety_checklist_db" ]; then
+  cp -r ai-service/safety_checklist_db/* ai-service/data/
 fi
 
-echo "🌐 [5/5] Проверка nginx..."
-nginx -t && systemctl reload nginx
+echo "🚀 [4/5] Запуск контейнеров..."
+docker-compose up -d
+
+echo "🔍 [5/5] Проверка статуса..."
+sleep 5
+docker-compose ps
 
 echo ""
 echo "✅ Деплой завершён!"
-echo "   Сервер: http://localhost:8001"
-echo "   Сайт:   https://vzmakh.su"
+echo "   Backend: http://localhost:8001"
+echo "   AI Service: http://localhost:8002"
+echo "   Nginx: http://localhost (если включен)"
+echo ""
+echo "📊 Логи: docker-compose logs -f"

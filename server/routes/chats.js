@@ -14,6 +14,7 @@
 const router = require('express').Router();
 const { randomUUID } = require('crypto');
 const db = require('../db');
+const aiService = require('../services/aiService');
 
 /* ─── helpers ─────────────────────────────────────────── */
 
@@ -90,10 +91,12 @@ router.get('/:id/messages', (req, res) => {
 });
 
 /* ─── POST /api/chats/:id/messages ───────────────────── */
-router.post('/:id/messages', (req, res) => {
+router.post('/:id/messages', async (req, res, next) => {
   try {
     const chat = db.prepare(`SELECT * FROM chats WHERE id = ?`).get(req.params.id);
-    if (!chat) return res.status(404).json({ success: false, error: 'Чат не найден' });
+    if (!chat) {
+      return res.status(404).json({ success: false, error: 'Чат не найден' });
+    }
 
     const { role = 'user', content } = req.body || {};
 
@@ -104,22 +107,113 @@ router.post('/:id/messages', (req, res) => {
       return res.status(400).json({ success: false, error: 'role должен быть user|assistant|system' });
     }
 
+    // --- НОВАЯ ЛОГИКА ДЛЯ AI ---
+    // Если это сообщение от пользователя и AI включен
+    if (role === 'user' && process.env.AI_ENABLED !== 'false') {
+      // 1. Проверяем лимиты
+      const limitCheck = await aiService.checkLimit(req.ip || 'anonymous');
+      if (!limitCheck.allowed) {
+        return res.status(429).json({
+          success: false,
+          error: 'Превышен лимит запросов. Попробуйте позже.'
+        });
+      }
+
+      // 2. Сохраняем сообщение пользователя
+      const id = randomUUID();
+      const ts = now();
+      db.prepare(`INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`)
+        .run(id, req.params.id, 'user', content.trim(), ts);
+
+      // Обновляем updated_at
+      db.prepare(`UPDATE chats SET updated_at = ? WHERE id = ?`).run(ts, req.params.id);
+
+      // 3. Получаем историю (последние 10 сообщений)
+      const history = db.prepare(`
+        SELECT role, content FROM messages 
+        WHERE chat_id = ? 
+        ORDER BY created_at DESC LIMIT 10
+      `).all(req.params.id).reverse();
+
+      // 4. Отправляем в AI сервис со стримингом
+      const stream = await aiService.sendMessage(
+        req.params.id,
+        content.trim(),
+        history
+      );
+
+      // 5. Отдаем стрим клиенту
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+
+      // Проксируем стрим от Python сервиса
+      const reader = stream.getReader();
+      let fullResponse = '';
+
+      // Функция для сохранения полного ответа после завершения
+      const saveAssistantMessage = async () => {
+        // Сохраняем ответ ассистента в БД
+        if (fullResponse) {
+          const assistantId = randomUUID();
+          const tsNow = now();
+          db.prepare(`INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`)
+            .run(assistantId, req.params.id, 'assistant', fullResponse, tsNow);
+          db.prepare(`UPDATE chats SET updated_at = ? WHERE id = ?`).run(tsNow, req.params.id);
+        }
+      };
+
+      // Читаем стрим и отправляем клиенту
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          // value - это Uint8Array, преобразуем в строку
+          const chunk = new TextDecoder().decode(value);
+          fullResponse += chunk;
+          
+          // Отправляем клиенту в формате SSE
+          res.write(`data: ${JSON.stringify({ content: chunk, done: false })}\n\n`);
+        }
+        
+        // Сохраняем полный ответ в БД
+        await saveAssistantMessage();
+        res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+        res.end();
+
+      } catch (streamError) {
+        console.error('[AI Stream Error]', streamError);
+        // Пробуем сохранить то, что успели получить
+        await saveAssistantMessage();
+        res.write(`data: ${JSON.stringify({ error: 'Stream error', done: true })}\n\n`);
+        res.end();
+      }
+
+      return; // Выходим, т.к. ответ уже отправлен
+    }
+
+    // --- СТАРАЯ ЛОГИКА ДЛЯ ОБЫЧНЫХ СООБЩЕНИЙ ---
+    // (сохраняется для системных сообщений или если AI выключен)
     const id = randomUUID();
     const ts = now();
 
-    db.prepare(`INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`).run(id, req.params.id, role, content.trim(), ts);
+    db.prepare(`INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`)
+      .run(id, req.params.id, role, content.trim(), ts);
 
-    // Автоматически переименовать чат по первому сообщению пользователя
     if (role === 'user' && chat.title === 'Новый чат') {
       const shortTitle = content.trim().slice(0, 60);
-      db.prepare(`UPDATE chats SET title = ?, updated_at = ? WHERE id = ?`).run(shortTitle, ts, req.params.id);
+      db.prepare(`UPDATE chats SET title = ?, updated_at = ? WHERE id = ?`)
+        .run(shortTitle, ts, req.params.id);
     } else {
       db.prepare(`UPDATE chats SET updated_at = ? WHERE id = ?`).run(ts, req.params.id);
     }
 
     const message = db.prepare(`SELECT * FROM messages WHERE id = ?`).get(id);
     res.status(201).json({ success: true, data: message });
+
   } catch (err) {
+    console.error('[Messages Error]', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });

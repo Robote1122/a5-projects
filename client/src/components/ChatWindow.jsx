@@ -1,10 +1,11 @@
 /**
  * components/ChatWindow.jsx
- * Центральная область: сообщения чата.
+ * Центральная область: сообщения чата с поддержкой стриминга
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
+// Компонент аватара
 function Avatar({ role }) {
   if (role === 'user') {
     return (
@@ -26,6 +27,7 @@ function Avatar({ role }) {
   );
 }
 
+// Компонент обычного сообщения
 function Message({ msg }) {
   const isUser = msg.role === 'user';
   const time = new Date(msg.created_at * 1000).toLocaleTimeString('ru-RU', {
@@ -51,11 +53,49 @@ function Message({ msg }) {
   );
 }
 
-export default function ChatWindow({ messages, loading, activeChatId }) {
-  const bottomRef = useRef(null);
+// Компонент стримингового сообщения (печатает...)
+function StreamingMessage({ content }) {
+  return (
+    <div style={styles.msgRow}>
+      <Avatar role="assistant" />
+      <div style={styles.msgGroup}>
+        <div style={{ ...styles.bubble, ...styles.bubbleAI }}>
+          <p style={styles.msgText}>
+            {content}
+            <span style={styles.cursorBlink}>▊</span>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
+// Основной компонент
+export default function ChatWindow({ 
+  messages, 
+  loading, 
+  activeChatId, 
+  onSendMessage,
+  isStreaming,
+  streamingContent 
+}) {
+  const bottomRef = useRef(null);
+  const [showScrollHint, setShowScrollHint] = useState(false);
+
+  // Автоскролл к новым сообщениям
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, streamingContent]);
+
+  // Показывать подсказку о прокрутке, если сообщений много
+  useEffect(() => {
+    const container = document.querySelector('.chat-messages-container');
+    if (container) {
+      const isScrolledUp = container.scrollTop < container.scrollHeight - container.clientHeight - 100;
+      setShowScrollHint(isScrolledUp);
+    }
   }, [messages]);
 
   if (!activeChatId) {
@@ -69,6 +109,7 @@ export default function ChatWindow({ messages, loading, activeChatId }) {
         </div>
         <p style={styles.emptyTitle}>Выбери чат или создай новый</p>
         <p style={styles.emptyHint}>Все сообщения хранятся локально в SQLite</p>
+        <p style={styles.emptyHint}>🤖 AI ассистент использует RAG на базе GigaChat</p>
       </div>
     );
   }
@@ -82,13 +123,38 @@ export default function ChatWindow({ messages, loading, activeChatId }) {
           <span style={{ ...styles.loadingDot, animationDelay: '0.4s' }} />
         </div>
       ) : (
-        <div style={styles.msgList}>
+        <div style={styles.msgList} className="chat-messages-container">
           {messages.length === 0 && (
-            <div style={styles.startHint}>Начни переписку — введи сообщение</div>
+            <div style={styles.startHint}>
+              💬 Начни переписку — введи сообщение
+              <br />
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                AI будет отвечать с использованием базы знаний по безопасности
+              </span>
+            </div>
           )}
-          {messages.map(m => <Message key={m.id} msg={m} />)}
+          
+          {messages.map((msg) => (
+            <Message key={msg.id} msg={msg} />
+          ))}
+          
+          {/* Стриминговое сообщение (печатает...) */}
+          {isStreaming && (
+            <StreamingMessage content={streamingContent} />
+          )}
+          
           <div ref={bottomRef} />
         </div>
+      )}
+
+      {/* Подсказка прокрутки вниз */}
+      {showScrollHint && (
+        <button 
+          style={styles.scrollHint}
+          onClick={() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' })}
+        >
+          ↓ Новые сообщения
+        </button>
       )}
 
       <style>{`
@@ -96,11 +162,16 @@ export default function ChatWindow({ messages, loading, activeChatId }) {
           0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
           40% { opacity: 1; transform: scale(1); }
         }
+        @keyframes blink {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0; }
+        }
       `}</style>
     </div>
   );
 }
 
+// Стили (CSS-in-JS)
 const styles = {
   window: {
     flex: 1,
@@ -108,6 +179,7 @@ const styles = {
     flexDirection: 'column',
     overflow: 'hidden',
     background: 'var(--bg-chat)',
+    position: 'relative',
   },
   msgList: {
     flex: 1,
@@ -116,6 +188,7 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     gap: 16,
+    scrollBehavior: 'smooth',
   },
   msgRow: {
     display: 'flex',
@@ -153,6 +226,7 @@ const styles = {
     lineHeight: 1.65,
     color: 'var(--text-primary)',
     whiteSpace: 'pre-wrap',
+    margin: 0,
   },
   msgTime: {
     fontSize: 11,
@@ -167,6 +241,10 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
+  },
+  cursorBlink: {
+    animation: 'blink 1s infinite',
+    color: 'var(--accent)',
   },
   empty: {
     flex: 1,
@@ -190,6 +268,7 @@ const styles = {
   emptyHint: {
     fontSize: 13,
     color: 'var(--text-muted)',
+    textAlign: 'center',
   },
   loadingWrap: {
     flex: 1,
@@ -211,5 +290,21 @@ const styles = {
     color: 'var(--text-muted)',
     fontSize: 13,
     padding: '60px 0',
+    lineHeight: 2,
+  },
+  scrollHint: {
+    position: 'absolute',
+    bottom: 20,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    padding: '6px 16px',
+    background: 'var(--bg-active)',
+    border: '1px solid var(--border)',
+    borderRadius: 20,
+    color: 'var(--text-secondary)',
+    fontSize: 12,
+    cursor: 'pointer',
+    transition: 'var(--transition)',
+    zIndex: 10,
   },
 };

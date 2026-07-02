@@ -1,18 +1,24 @@
 /**
  * hooks/useChats.js
  * Стейт-менеджер: список чатов, активный чат, сообщения.
+ * с поддержкой AI стриминга
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api/chats';
 
 export function useChats() {
-  const [chats, setChats]         = useState([]);
+  const [chats, setChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
-  const [messages, setMessages]   = useState([]);
-  const [loading, setLoading]     = useState(false);
-  const [sending, setSending]     = useState(false);
-  const [error, setError]         = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState(null);
+  
+  // Состояния для стриминга
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingContent, setStreamingContent] = useState('');
+  const streamControllerRef = useRef(null);
 
   /* Загрузить список чатов */
   const loadChats = useCallback(async () => {
@@ -43,6 +49,13 @@ export function useChats() {
 
   /* При смене активного чата — грузим сообщения */
   useEffect(() => {
+    // Отменяем текущий стриминг при смене чата
+    if (streamControllerRef.current) {
+      streamControllerRef.current.abort();
+      streamControllerRef.current = null;
+    }
+    setIsStreaming(false);
+    setStreamingContent('');
     setMessages([]);
     loadMessages(activeChatId);
   }, [activeChatId, loadMessages]);
@@ -72,42 +85,140 @@ export function useChats() {
     }
   }, [activeChatId]);
 
-  /* Отправить сообщение */
+  /* Отправить сообщение (с поддержкой стриминга) */
   const sendMessage = useCallback(async (content) => {
     if (!activeChatId || !content.trim() || sending) return;
+    
     setSending(true);
-    try {
-      const msg = await api.sendMessage(activeChatId, 'user', content.trim());
-      setMessages(prev => [...prev, msg]);
+    
+    // Добавляем сообщение пользователя локально (оптимистично)
+    const tempUserMsg = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: content.trim(),
+      created_at: Math.floor(Date.now() / 1000),
+    };
+    setMessages(prev => [...prev, tempUserMsg]);
 
-      // Обновить превью в сайдбаре
-      setChats(prev => prev.map(c =>
-        c.id === activeChatId
-          ? { ...c, title: c.title === 'Новый чат' ? content.trim().slice(0, 60) : c.title, last_message: content.trim(), updated_at: Math.floor(Date.now() / 1000) }
-          : c
-      ));
-    } catch (e) {
-      setError(e.message);
+    // Обновляем превью в сайдбаре
+    setChats(prev => prev.map(c =>
+      c.id === activeChatId
+        ? { 
+            ...c, 
+            title: c.title === 'Новый чат' ? content.trim().slice(0, 60) : c.title, 
+            last_message: content.trim(), 
+            updated_at: Math.floor(Date.now() / 1000) 
+          }
+        : c
+    ));
+
+    try {
+      // Отправляем запрос на сервер с ожиданием стрима
+      const response = await fetch(`/api/chats/${activeChatId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          role: 'user', 
+          content: content.trim() 
+        }),
+        // Используем AbortController для отмены
+        signal: streamControllerRef.current?.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to send message');
+      }
+
+      // Получаем стрим
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullResponse = '';
+      
+      setIsStreaming(true);
+      setStreamingContent('');
+
+      // Читаем стрим
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              if (data.done) {
+                // Стриминг завершен
+                setIsStreaming(false);
+                setStreamingContent('');
+                
+                // Сохраняем полный ответ ассистента
+                if (fullResponse) {
+                  const assistantMsg = {
+                    id: (Date.now() + 1).toString(),
+                    role: 'assistant',
+                    content: fullResponse,
+                    created_at: Math.floor(Date.now() / 1000),
+                  };
+                  setMessages(prev => [...prev, assistantMsg]);
+                  
+                  // Обновляем превью в сайдбаре
+                  setChats(prev => prev.map(c =>
+                    c.id === activeChatId
+                      ? { ...c, last_message: fullResponse.slice(0, 60), updated_at: Math.floor(Date.now() / 1000) }
+                      : c
+                  ));
+                }
+              } else if (data.content) {
+                fullResponse += data.content;
+                setStreamingContent(fullResponse);
+              }
+            } catch (e) {
+              // Игнорируем ошибки парсинга
+            }
+          }
+        }
+      }
+
+    } catch (error) {
+      console.error('[Send Message Error]', error);
+      setError(error.message);
+      
+      // Удаляем временное сообщение пользователя при ошибке
+      setMessages(prev => prev.filter(msg => msg.id !== tempUserMsg.id));
+      
+      // Показываем сообщение об ошибке
+      const errorMsg = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: '❌ Извините, произошла ошибка при обработке сообщения. Попробуйте позже.',
+        created_at: Math.floor(Date.now() / 1000),
+      };
+      setMessages(prev => [...prev, errorMsg]);
     } finally {
       setSending(false);
+      setIsStreaming(false);
+      setStreamingContent('');
+      streamControllerRef.current = null;
     }
   }, [activeChatId, sending]);
 
-  /* Добавить ответ (от внешнего AI / вручную) */
-  const addAssistantMessage = useCallback(async (content) => {
-    if (!activeChatId) return;
-    try {
-      const msg = await api.sendMessage(activeChatId, 'assistant', content);
-      setMessages(prev => [...prev, msg]);
-    } catch (e) {
-      setError(e.message);
-    }
-  }, [activeChatId]);
-
   return {
-    chats, activeChatId, setActiveChatId,
-    messages, loading, sending, error,
-    createChat, deleteChat, sendMessage, addAssistantMessage,
+    chats,
+    activeChatId,
+    setActiveChatId,
+    messages,
+    loading,
+    sending,
+    error,
+    isStreaming,
+    streamingContent,
+    createChat,
+    deleteChat,
+    sendMessage,
     reload: loadChats,
   };
 }
