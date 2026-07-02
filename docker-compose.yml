@@ -8,19 +8,26 @@ services:
       dockerfile: Dockerfile
     container_name: vzmakh-chat-backend
     ports:
-      - "8001:8001"
+      - "127.0.0.1:8001:8001"  # Только локально, не наружу
     environment:
       - NODE_ENV=production
       - PORT=8001
       - AI_ENABLED=true
       - AI_SERVICE_URL=http://ai-service:8002
+      - DB_PATH=/app/server/data/chat.db
     volumes:
-      - ./server/data:/app/server/data  # Персистентность БД
+      - ./server/data:/app/server/data
+      - ./logs:/app/logs
     depends_on:
       - ai-service
     networks:
       - vzmakh-network
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Python AI сервис
   ai-service:
@@ -29,33 +36,22 @@ services:
       dockerfile: Dockerfile
     container_name: vzmakh-chat-ai
     ports:
-      - "8002:8002"
+      - "127.0.0.1:8002:8002"  # Только локально
     environment:
       - PORT=8002
       - GIGACHAT_AUTH_DATA=${GIGACHAT_AUTH_DATA}
       - GIGACHAT_MODEL=${GIGACHAT_MODEL:-Embeddings}
       - DB_PATH=/app/data/safety_checklist_db
     volumes:
-      - ./ai-service/data:/app/data  # Персистентность ChromaDB
+      - ./ai-service/data:/app/data
     networks:
       - vzmakh-network
     restart: unless-stopped
-
-  # Nginx (опционально, для продакшна)
-  nginx:
-    image: nginx:alpine
-    container_name: vzmakh-chat-nginx
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro  # SSL сертификаты
-    depends_on:
-      - backend
-    networks:
-      - vzmakh-network
-    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   vzmakh-network:
