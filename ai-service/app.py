@@ -40,7 +40,7 @@ async def chat(request: ChatRequest):
                 context=context,
                 history=request.history
             ):
-                yield f"data: {json.dumps({'content': chunk, 'done': False})}\n\n"
+                yield f"data: {json.dumps({'content': chunk, 'done': False}, ensure_ascii=False)}\n\n"
             yield f"data: {json.dumps({'done': True})}\n\n"
         
         return StreamingResponse(generate(), media_type="text/event-stream")
