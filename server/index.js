@@ -8,8 +8,10 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fileUpload = require('express-fileupload'); // Добавить
 
 const chatsRouter = require('./routes/chats');
+const promptsRouter = require('./routes/prompts'); // Добавить
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -21,6 +23,13 @@ app.use(cors({
   methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
+// Добавляем поддержку файлов
+app.use(fileUpload({
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+    abortOnLimit: true,
+    safeFileNames: true,
+}));
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -32,6 +41,7 @@ app.use((req, _res, next) => {
 
 /* ─── API маршруты ───────────────────────────────────── */
 app.use('/api/chats', chatsRouter);
+app.use('/api/prompts', promptsRouter);
 
 /* ─── Health check ───────────────────────────────────── */
 app.get('/api/health', (_req, res) => {
@@ -53,6 +63,7 @@ app.use(errorHandler);
 /* ─── Запуск ─────────────────────────────────────────── */
 app.listen(PORT, () => {
   console.log(`🚀 Vzmakh Chat сервер запущен на http://localhost:${PORT}`);
+  console.log(`📝 Прокси промптов: http://localhost:${PORT}/api/prompts`);
 });
 
 module.exports = app;

@@ -3,11 +3,12 @@
  * Менеджер для редактирования prompt-файлов
  */
 
+
 import React, { useState, useEffect } from 'react';
+import { promptsApi } from '../api/prompts.js';
 
-const BASE_URL = '/api/ai';
 
-export default function PromptManager({ onClose }) {
+export default function PromptManager() {
   const [promptType, setPromptType] = useState('start');
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(false);
@@ -16,24 +17,25 @@ export default function PromptManager({ onClose }) {
   const [isOpen, setIsOpen] = useState(false);
 
   const promptTypes = [
-    { value: 'start', label: 'Начальный промпт' },
-    { value: 'continue', label: 'Промпт с контекстом' },
+      { value: 'start', label: 'Начальный промпт' },
+      { value: 'continue', label: 'Промпт с контекстом' },
   ];
 
   // Загрузка текущего промпта
   const loadPrompt = async (type) => {
-    setLoading(true);
-    setMessage({ type: '', text: '' });
-    try {
-      const response = await fetch(`${BASE_URL}/prompt/${type}`);
-      if (!response.ok) throw new Error('Ошибка загрузки');
-      const data = await response.json();
-      setContent(data.content);
-    } catch (error) {
-      setMessage({ type: 'error', text: 'Ошибка загрузки промпта' });
-    } finally {
-      setLoading(false);
-    }
+      setLoading(true);
+      setMessage({ type: '', text: '' });
+      try {
+          const data = await promptsApi.getPrompt(type);
+          setContent(data.content);
+      } catch (error) {
+          setMessage({ 
+              type: 'error', 
+              text: error.message || 'Ошибка загрузки промпта' 
+          });
+      } finally {
+          setLoading(false);
+      }
   };
 
   useEffect(() => {
@@ -44,84 +46,69 @@ export default function PromptManager({ onClose }) {
 
   // Сохранение через текст
   const handleSaveText = async () => {
-    setSaving(true);
-    setMessage({ type: '', text: '' });
-    try {
-      const response = await fetch(`${BASE_URL}/prompt/${promptType}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt_type: promptType, content })
-      });
-      const data = await response.json();
-      if (data.success) {
-        setMessage({ type: 'success', text: 'Промпт сохранен!' });
-      } else {
-        setMessage({ type: 'error', text: data.detail || 'Ошибка сохранения' });
+      setSaving(true);
+      setMessage({ type: '', text: '' });
+      try {
+          await promptsApi.updatePrompt(promptType, content);
+          setMessage({ type: 'success', text: '✅ Промпт сохранен!' });
+      } catch (error) {
+          setMessage({ 
+              type: 'error', 
+              text: error.message || 'Ошибка сохранения' 
+          });
+      } finally {
+          setSaving(false);
       }
-    } catch (error) {
-      setMessage({ type: 'error', text: 'Ошибка сохранения' });
-    } finally {
-      setSaving(false);
-    }
   };
 
   // Загрузка файла
   const handleFileUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (!file.name.endsWith('.txt')) {
-      setMessage({ type: 'error', text: 'Файл должен быть .txt' });
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    setSaving(true);
-    setMessage({ type: '', text: '' });
-    try {
-      const response = await fetch(`${BASE_URL}/prompt/${promptType}/upload`, {
-        method: 'POST',
-        body: formData
-      });
-      const data = await response.json();
-      if (data.success) {
-        setMessage({ type: 'success', text: `Файл ${file.name} загружен!` });
-        // Перезагружаем содержимое
-        await loadPrompt(promptType);
-      } else {
-        setMessage({ type: 'error', text: data.detail || 'Ошибка загрузки' });
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      if (!file.name.endsWith('.txt')) {
+          setMessage({ type: 'error', text: '❌ Файл должен быть .txt' });
+          return;
       }
-    } catch (error) {
-      setMessage({ type: 'error', text: 'Ошибка загрузки файла' });
-    } finally {
-      setSaving(false);
-      e.target.value = '';
-    }
+
+      setSaving(true);
+      setMessage({ type: '', text: '' });
+      try {
+          const data = await promptsApi.uploadPrompt(promptType, file);
+          setMessage({ 
+              type: 'success', 
+              text: `✅ Файл ${data.filename || file.name} загружен!` 
+          });
+          await loadPrompt(promptType);
+      } catch (error) {
+          setMessage({ 
+              type: 'error', 
+              text: error.message || 'Ошибка загрузки файла' 
+          });
+      } finally {
+          setSaving(false);
+          e.target.value = '';
+      }
   };
 
   // Восстановление из бэкапа
   const handleRestore = async () => {
-    if (!confirm('Восстановить промпт из бэкапа? Текущие изменения будут потеряны.')) return;
-    
-    setSaving(true);
-    setMessage({ type: '', text: '' });
-    try {
-      const response = await fetch(`${BASE_URL}/prompt/${promptType}/restore`, {
-        method: 'POST'
-      });
-      const data = await response.json();
-      if (data.success) {
-        setMessage({ type: 'success', text: 'Промпт восстановлен из бэкапа!' });
-        await loadPrompt(promptType);
-      } else {
-        setMessage({ type: 'error', text: data.detail || 'Ошибка восстановления' });
+      if (!confirm('Восстановить промпт из бэкапа?')) return;
+      
+      setSaving(true);
+      setMessage({ type: '', text: '' });
+      try {
+          await promptsApi.restorePrompt(promptType);
+          setMessage({ type: 'success', text: '✅ Промпт восстановлен из бэкапа!' });
+          await loadPrompt(promptType);
+      } catch (error) {
+          setMessage({ 
+              type: 'error', 
+              text: error.message || 'Ошибка восстановления' 
+          });
+      } finally {
+          setSaving(false);
       }
-    } catch (error) {
-      setMessage({ type: 'error', text: 'Ошибка восстановления' });
-    } finally {
-      setSaving(false);
-    }
   };
 
   // Кнопка для открытия модалки
