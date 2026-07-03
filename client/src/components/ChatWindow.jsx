@@ -1,9 +1,12 @@
 /**
  * components/ChatWindow.jsx
- * Центральная область: сообщения чата с поддержкой стриминга
+ * Центральная область: сообщения чата с поддержкой стриминга и Markdown
  */
 
 import React, { useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 
 // Компонент аватара
 function Avatar({ role }) {
@@ -27,7 +30,7 @@ function Avatar({ role }) {
   );
 }
 
-// Компонент обычного сообщения
+// Компонент сообщения с Markdown
 function Message({ msg }) {
   const isUser = msg.role === 'user';
   const time = new Date(msg.created_at * 1000).toLocaleTimeString('ru-RU', {
@@ -42,7 +45,71 @@ function Message({ msg }) {
           ...styles.bubble,
           ...(isUser ? styles.bubbleUser : styles.bubbleAI),
         }}>
-          <p style={styles.msgText}>{msg.content}</p>
+          {isUser ? (
+            <p style={styles.msgText}>{msg.content}</p>
+          ) : (
+            <div style={styles.markdown}>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeRaw]}
+                components={{
+                  // Кастомизация элементов Markdown
+                  h1: ({ node, ...props }) => (
+                    <h1 style={styles.markdownH1} {...props} />
+                  ),
+                  h2: ({ node, ...props }) => (
+                    <h2 style={styles.markdownH2} {...props} />
+                  ),
+                  h3: ({ node, ...props }) => (
+                    <h3 style={styles.markdownH3} {...props} />
+                  ),
+                  p: ({ node, ...props }) => (
+                    <p style={styles.markdownP} {...props} />
+                  ),
+                  ul: ({ node, ...props }) => (
+                    <ul style={styles.markdownUl} {...props} />
+                  ),
+                  ol: ({ node, ...props }) => (
+                    <ol style={styles.markdownOl} {...props} />
+                  ),
+                  li: ({ node, ...props }) => (
+                    <li style={styles.markdownLi} {...props} />
+                  ),
+                  blockquote: ({ node, ...props }) => (
+                    <blockquote style={styles.markdownBlockquote} {...props} />
+                  ),
+                  code: ({ node, inline, ...props }) => (
+                    inline ? 
+                      <code style={styles.markdownCodeInline} {...props} /> :
+                      <code style={styles.markdownCodeBlock} {...props} />
+                  ),
+                  pre: ({ node, ...props }) => (
+                    <pre style={styles.markdownPre} {...props} />
+                  ),
+                  table: ({ node, ...props }) => (
+                    <table style={styles.markdownTable} {...props} />
+                  ),
+                  th: ({ node, ...props }) => (
+                    <th style={styles.markdownTh} {...props} />
+                  ),
+                  td: ({ node, ...props }) => (
+                    <td style={styles.markdownTd} {...props} />
+                  ),
+                  hr: ({ node, ...props }) => (
+                    <hr style={styles.markdownHr} {...props} />
+                  ),
+                  strong: ({ node, ...props }) => (
+                    <strong style={styles.markdownStrong} {...props} />
+                  ),
+                  em: ({ node, ...props }) => (
+                    <em style={styles.markdownEm} {...props} />
+                  ),
+                }}
+              >
+                {msg.content}
+              </ReactMarkdown>
+            </div>
+          )}
         </div>
         <span style={{ ...styles.msgTime, ...(isUser ? { textAlign: 'right' } : {}) }}>
           {time}
@@ -53,17 +120,92 @@ function Message({ msg }) {
   );
 }
 
-// Компонент стримингового сообщения (печатает...)
+// Компонент стримингового сообщения
 function StreamingMessage({ content }) {
+  // Если стриминг только начался и контента мало - показываем индикатор
+  if (!content || content.length < 3) {
+    return (
+      <div style={styles.msgRow}>
+        <Avatar role="assistant" />
+        <div style={styles.msgGroup}>
+          <div style={{ ...styles.bubble, ...styles.bubbleAI }}>
+            <div style={styles.typingIndicator}>
+              <span style={styles.typingDot} />
+              <span style={{ ...styles.typingDot, animationDelay: '0.2s' }} />
+              <span style={{ ...styles.typingDot, animationDelay: '0.4s' }} />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={styles.msgRow}>
       <Avatar role="assistant" />
       <div style={styles.msgGroup}>
         <div style={{ ...styles.bubble, ...styles.bubbleAI }}>
-          <p style={styles.msgText}>
-            {content}
-            <span style={styles.cursorBlink}>▊</span>
-          </p>
+          <div style={styles.markdown}>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeRaw]}
+              components={{
+                h1: ({ node, ...props }) => (
+                  <h1 style={styles.markdownH1} {...props} />
+                ),
+                h2: ({ node, ...props }) => (
+                  <h2 style={styles.markdownH2} {...props} />
+                ),
+                h3: ({ node, ...props }) => (
+                  <h3 style={styles.markdownH3} {...props} />
+                ),
+                p: ({ node, ...props }) => (
+                  <p style={styles.markdownP} {...props} />
+                ),
+                ul: ({ node, ...props }) => (
+                  <ul style={styles.markdownUl} {...props} />
+                ),
+                ol: ({ node, ...props }) => (
+                  <ol style={styles.markdownOl} {...props} />
+                ),
+                li: ({ node, ...props }) => (
+                  <li style={styles.markdownLi} {...props} />
+                ),
+                blockquote: ({ node, ...props }) => (
+                  <blockquote style={styles.markdownBlockquote} {...props} />
+                ),
+                code: ({ node, inline, ...props }) => (
+                  inline ? 
+                    <code style={styles.markdownCodeInline} {...props} /> :
+                    <code style={styles.markdownCodeBlock} {...props} />
+                ),
+                pre: ({ node, ...props }) => (
+                  <pre style={styles.markdownPre} {...props} />
+                ),
+                table: ({ node, ...props }) => (
+                  <table style={styles.markdownTable} {...props} />
+                ),
+                th: ({ node, ...props }) => (
+                  <th style={styles.markdownTh} {...props} />
+                ),
+                td: ({ node, ...props }) => (
+                  <td style={styles.markdownTd} {...props} />
+                ),
+                hr: ({ node, ...props }) => (
+                  <hr style={styles.markdownHr} {...props} />
+                ),
+                strong: ({ node, ...props }) => (
+                  <strong style={styles.markdownStrong} {...props} />
+                ),
+                em: ({ node, ...props }) => (
+                  <em style={styles.markdownEm} {...props} />
+                ),
+              }}
+            >
+              {content}
+            </ReactMarkdown>
+          </div>
+          <span style={styles.cursorBlink}>▊</span>
         </div>
       </div>
     </div>
