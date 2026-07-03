@@ -10,6 +10,7 @@ import ChatHeader from './components/ChatHeader';
 import ChatWindow from './components/ChatWindow';
 import MessageInput from './components/MessageInput';
 import { useChats } from './hooks/useChats';
+import PromptManager from './components/PromptManager';
 
 export default function App() {
   const {
@@ -72,6 +73,7 @@ export default function App() {
           />
         )}
       </div>
+      <PromptManager />
     </div>
   );
 }
