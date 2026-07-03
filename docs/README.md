@@ -14,6 +14,8 @@ vzmakh-chat/
 │   ├── db.js                   # Подключение к SQLite (singleton)
 │   ├── routes/
 │   │   └── chats.js            # REST API маршруты
+│   ├── services/
+│   │   └── aiService.js # Клиент для Python AI сервиса
 │   ├── middleware/
 │   │   └── errorHandler.js     # Глобальный обработчик ошибок
 │   ├── scripts/
@@ -40,6 +42,15 @@ vzmakh-chat/
 │   ├── index.html
 │   ├── vite.config.js          # Vite + proxy на :8001
 │   └── package.json
+├── ai-service/                 # AI сервис (Python + FastAPI)
+│   ├── app.py                  # FastAPI сервер с SSE стримингом
+│   ├── rag_engine.py           # RAG логика (ChromaDB + GigaChat)
+│   ├── requirements.txt        # Python зависимости
+│   ├── Dockerfile              # Docker образ для AI сервиса
+│   ├── safety_checklist_db/    # ChromaDB с 291+ документами
+│   ├── pm1.py                  # Скрипт создания базы данных
+│   ├── create_db_once.py       # Упрощенный скрипт создания БД
+│   └── .env                    # Переменные окружения AI
 │
 ├── docs/
 │   ├── README.md               # Эта документация
@@ -47,6 +58,10 @@ vzmakh-chat/
 │   ├── nginx-http-only.conf    # nginx конфиг без SSL (для теста)
 │   └── API.md                  # Документация API
 │
+├── docker-compose.yml          # Docker Compose (backend + ai-service)
+├── Dockerfile                  # Docker образ для backend
+├── .env                        # Общие переменные окружения
+├── .dockerignore               # Исключения для Docker
 ├── ecosystem.config.js         # PM2 конфигурация
 └── deploy.sh                   # Скрипт деплоя
 ```
@@ -76,13 +91,6 @@ npm run dev
 ```bash
 # Одной командой:
 bash deploy.sh
-
-# Или вручную:
-cd server && npm install --production
-cd ../client && npm install && npm run build
-pm2 start ecosystem.config.js
-pm2 save
-pm2 startup  # авторестарт при перезагрузке сервера
 ```
 
 ---
