@@ -173,6 +173,7 @@ export function useChats() {
                   ));
                 }
               } else if (data.content) {
+                console.log(data)
                 fullResponse += data.content;
                 setStreamingContent(fullResponse);
               }
