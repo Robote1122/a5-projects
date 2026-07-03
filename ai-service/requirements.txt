@@ -6,3 +6,4 @@ python-dotenv==1.0.0
 numpy==1.24.3
 pydantic==2.5.0
 sse-starlette==1.6.5  # для Server-Sent Events
+python-multipart==0.0.32 # Для загрузки файлов через FastAPI
