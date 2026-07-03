@@ -1,5 +1,5 @@
 version: '3.8'
-
+# MDE5ZjFlZDUtMGQyYS03MDY2LThkMDgtZmY2MGMwNGNlODU5OjA0OTBlNGYzLTk0OGEtNDIzMS1iZWFhLTQzNWYxNzZjOTg4Yw==
 services:
   # Node.js бэкенд + React фронтенд
   backend:
@@ -10,6 +10,7 @@ services:
     ports:
       - "127.0.0.1:8001:8001"  # Только локально, не наружу
     environment:
+      - GIGACHAT_AUTH_DATA=MDE5ZjFlZDUtMGQyYS03MDY2LThkMDgtZmY2MGMwNGNlODU5OjA0OTBlNGYzLTk0OGEtNDIzMS1iZWFhLTQzNWYxNzZjOTg4Yw
       - NODE_ENV=production
       - PORT=8001
       - AI_ENABLED=true
