@@ -149,7 +149,9 @@ router.post('/:id/messages', async (req, res, next) => {
 
       // Проксируем стрим от Python сервиса
       const reader = stream.getReader();
+      const decoder = new TextDecoder();
       let fullResponse = '';
+      let buffer = ''; // буфер для неполных SSE-строк между чанками
 
       // Функция для сохранения полного ответа после завершения
       const saveAssistantMessage = async () => {
@@ -163,20 +165,39 @@ router.post('/:id/messages', async (req, res, next) => {
         }
       };
 
-      // Читаем стрим и отправляем клиенту
+      // Читаем стрим от Python-сервиса, парсим SSE-события и пересылаем клиенту уже чистый content
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          
-          // value - это Uint8Array, преобразуем в строку
-          const chunk = new TextDecoder().decode(value);
-          fullResponse += chunk;
-          
-          // Отправляем клиенту в формате SSE
-          res.write(`data: ${JSON.stringify({ content: chunk, done: false })}\n\n`);
+
+          buffer += decoder.decode(value, { stream: true });
+
+          // SSE-события разделены пустой строкой ("\n\n")
+          const parts = buffer.split('\n\n');
+          buffer = parts.pop(); // последний кусок может быть неполным — оставляем в буфере
+
+          for (const part of parts) {
+            const line = part.trim();
+            if (!line.startsWith('data: ')) continue;
+
+            let payload;
+            try {
+              payload = JSON.parse(line.slice(6));
+            } catch (e) {
+              continue; // пропускаем битый JSON
+            }
+
+            if (payload.done) {
+              continue; // финальный маркер от Python сервиса — сформируем свой в конце
+            }
+            if (payload.content) {
+              fullResponse += payload.content;
+              res.write(`data: ${JSON.stringify({ content: payload.content, done: false })}\n\n`);
+            }
+          }
         }
-        
+
         // Сохраняем полный ответ в БД
         await saveAssistantMessage();
         res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
