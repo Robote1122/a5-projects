@@ -1,18 +1,26 @@
 /**
  * scripts/migrate.js
  * Скрипт для выполнения миграций базы данных
- * 
- * Использование:
- *   node scripts/migrate.js          # Выполнить все миграции
- *   node scripts/migrate.js up       # Выполнить все миграции
- *   node scripts/migrate.js down     # Откатить последнюю миграцию
- *   node scripts/migrate.js status   # Показать статус миграций
  */
 
-require('dotenv').config();
-const { Pool } = require('pg');
-const fs = require('fs');
 const path = require('path');
+const fs = require('fs');
+
+// Загружаем .env из папки server
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
+
+// Если не загрузился - пробуем из корня
+if (!process.env.POSTGRES_HOST) {
+    require('dotenv').config({ path: path.join(__dirname, '../../.env') });
+}
+
+const { Pool } = require('pg');
+
+console.log('🔍 Проверка переменных окружения:');
+console.log(`   POSTGRES_HOST: ${process.env.POSTGRES_HOST || '❌ НЕ УСТАНОВЛЕН'}`);
+console.log(`   POSTGRES_USER: ${process.env.POSTGRES_USER || '❌ НЕ УСТАНОВЛЕН'}`);
+console.log(`   POSTGRES_DB: ${process.env.POSTGRES_DB || '❌ НЕ УСТАНОВЛЕН'}`);
+console.log('');
 
 // Настройки подключения к PostgreSQL
 const pool = new Pool({
@@ -21,13 +29,12 @@ const pool = new Pool({
     user: process.env.POSTGRES_USER || 'chat_user',
     password: process.env.POSTGRES_PASSWORD,
     database: process.env.POSTGRES_DATABASE || 'chat_app',
+    connectionTimeoutMillis: 5000,
 });
 
 const MIGRATIONS_DIR = path.join(__dirname, '../migrations');
 
-/**
- * Получить список всех миграций (SQL файлы)
- */
+// Получить список всех миграций (SQL файлы)
 function getMigrationFiles() {
     if (!fs.existsSync(MIGRATIONS_DIR)) {
         console.error(`❌ Папка с миграциями не найдена: ${MIGRATIONS_DIR}`);
@@ -36,14 +43,12 @@ function getMigrationFiles() {
 
     const files = fs.readdirSync(MIGRATIONS_DIR)
         .filter(file => file.endsWith('.sql'))
-        .sort(); // Сортировка по имени (001, 002, ...)
+        .sort();
 
     return files;
 }
 
-/**
- * Получить список выполненных миграций из БД
- */
+// Получить список выполненных миграций из БД
 async function getExecutedMigrations() {
     try {
         // Создаём таблицу migrations, если её нет
@@ -65,9 +70,63 @@ async function getExecutedMigrations() {
     }
 }
 
-/**
- * Выполнить одну миграцию
- */
+// Разбиваем SQL на отдельные выражения с учётом $$ блоков
+function splitSqlStatements(sql) {
+    const statements = [];
+    let current = '';
+    let inDollarQuote = false;
+    let dollarQuoteTag = '';
+    let i = 0;
+    
+    while (i < sql.length) {
+        // Проверяем начало долларовой кавычки
+        if (!inDollarQuote && sql[i] === '$' && i + 1 < sql.length && sql[i + 1] === '$') {
+            inDollarQuote = true;
+            // Находим тег долларовой кавычки
+            let tagStart = i;
+            let j = i + 2;
+            while (j < sql.length && sql[j] !== '$') j++;
+            if (j < sql.length && sql[j] === '$') {
+                dollarQuoteTag = sql.substring(i, j + 1);
+                current += dollarQuoteTag;
+                i = j + 1;
+                continue;
+            }
+        }
+        
+        // Проверяем конец долларовой кавычки
+        if (inDollarQuote && sql.substring(i, i + dollarQuoteTag.length) === dollarQuoteTag) {
+            inDollarQuote = false;
+            current += dollarQuoteTag;
+            i += dollarQuoteTag.length;
+            continue;
+        }
+        
+        // Если не в долларовой кавычке и встречаем точку с запятой
+        if (!inDollarQuote && sql[i] === ';') {
+            const trimmed = current.trim();
+            if (trimmed) {
+                statements.push(trimmed);
+            }
+            current = '';
+            i++;
+            continue;
+        }
+        
+        current += sql[i];
+        i++;
+    }
+    
+    // Добавляем последний кусок
+    const trimmed = current.trim();
+    if (trimmed) {
+        statements.push(trimmed);
+    }
+    
+    return statements;
+}
+
+// Выполнить одну миграцию
 async function executeMigration(fileName, sql) {
     const client = await pool.connect();
     try {
@@ -75,13 +134,13 @@ async function executeMigration(fileName, sql) {
 
         console.log(`  🔄 Выполняется: ${fileName}`);
 
-        // Разбиваем SQL на отдельные statements
-        const statements = sql
-            .split(';')
-            .filter(stmt => stmt.trim().length > 0);
+        // Разбиваем SQL на отдельные statements с учётом $$ блоков
+        const statements = splitSqlStatements(sql);
 
         for (const stmt of statements) {
-            await client.query(stmt);
+            if (stmt.trim()) {
+                await client.query(stmt);
+            }
         }
 
         // Записываем в таблицу migrations
@@ -102,9 +161,7 @@ async function executeMigration(fileName, sql) {
     }
 }
 
-/**
- * Выполнить все миграции
- */
+// Выполнить все миграции
 async function migrateUp() {
     console.log('🚀 Начинаем миграцию базы данных...\n');
 
@@ -134,7 +191,9 @@ async function migrateUp() {
             successCount++;
         } else {
             failCount++;
-            break; // Останавливаемся при ошибке
+            // Показываем детали ошибки для отладки
+            console.log(`   💡 Проверьте синтаксис в файле: ${file}`);
+            break;
         }
     }
 
@@ -151,9 +210,7 @@ async function migrateUp() {
     }
 }
 
-/**
- * Откатить последнюю миграцию
- */
+// Откатить последнюю миграцию
 async function migrateDown() {
     console.log('🔙 Откат последней миграции...\n');
 
@@ -165,17 +222,13 @@ async function migrateDown() {
 
     const lastMigration = executed[executed.length - 1];
     console.log(`📄 Откатываем: ${lastMigration}`);
-
-    // TODO: Реализовать откат (для этого нужны down-скрипты)
     console.log('⚠️  Откат миграций пока не реализован');
     console.log('   Для отката удалите запись из таблицы migrations и выполните обратные SQL');
 
     process.exit(0);
 }
 
-/**
- * Показать статус миграций
- */
+// Показать статус миграций
 async function showStatus() {
     console.log('📊 Статус миграций:\n');
 
@@ -195,9 +248,7 @@ async function showStatus() {
     process.exit(0);
 }
 
-/**
- * Главная функция
- */
+// Главная функция
 async function main() {
     const command = process.argv[2] || 'up';
 
@@ -205,8 +256,12 @@ async function main() {
         await pool.connect();
         console.log('✅ Подключено к PostgreSQL\n');
     } catch (error) {
-        console.error('❌ Не удалось подключиться к PostgreSQL:', error.message);
-        console.error('   Проверьте переменные окружения в .env');
+        console.error('❌ Не удалось подключиться к PostgreSQL:');
+        console.error(`   ${error.message}`);
+        console.error('\n   Проверьте:');
+        console.error('   1. Запущен ли PostgreSQL: sudo systemctl status postgresql');
+        console.error('   2. Правильные ли переменные в .env');
+        console.error('   3. Существует ли БД: psql -U chat_user -d chat_app');
         process.exit(1);
     }
 

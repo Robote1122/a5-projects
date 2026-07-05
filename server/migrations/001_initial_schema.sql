@@ -1,7 +1,5 @@
 -- ============================================
 -- Миграция 001: Начальная схема базы данных
--- Дата: 2026-07-05
--- Описание: Создание всех таблиц для чат-приложения
 -- ============================================
 
 -- Включаем расширение для генерации UUID
@@ -120,7 +118,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 -- ТРИГГЕРЫ
 -- ============================================
 
--- Триггер для автоматического обновления updated_at в users
+-- Функция для автоматического обновления updated_at в users
 CREATE OR REPLACE FUNCTION update_users_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -135,7 +133,7 @@ CREATE TRIGGER users_updated_at_trigger
     FOR EACH ROW
     EXECUTE FUNCTION update_users_updated_at();
 
--- Триггер для автоматического обновления updated_at в chats
+-- Функция для автоматического обновления updated_at в chats
 CREATE OR REPLACE FUNCTION update_chats_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -151,12 +149,20 @@ CREATE TRIGGER chats_updated_at_trigger
     EXECUTE FUNCTION update_chats_updated_at();
 
 -- ============================================
--- НАЧАЛЬНЫЕ ДАННЫЕ (опционально)
+-- НАЧАЛЬНЫЕ ДАННЫЕ
 -- ============================================
 
--- Создаём администратора (пароль будет установлен позже)
-INSERT INTO users (email, full_name, role, is_active, email_verified)
-VALUES ('admin@example.com', 'System Administrator', 'ADMIN', TRUE, TRUE)
+-- Создаём администратора с временным хешем пароля
+-- Реальный пароль будет установлен позже через скрипт set-admin-password.js
+INSERT INTO users (email, password_hash, full_name, role, is_active, email_verified)
+VALUES (
+    'admin@example.com', 
+    '$2b$12$dummy_hash_that_will_be_replaced_later',  -- Временный хеш
+    'System Administrator', 
+    'ADMIN', 
+    TRUE, 
+    TRUE
+)
 ON CONFLICT (email) DO NOTHING;
 
 -- Базовые права доступа

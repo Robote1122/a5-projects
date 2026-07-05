@@ -19,5 +19,4 @@ BEGIN
     ELSE
         RAISE NOTICE 'ℹ️ Таблица migrations уже существует';
     END IF;
-END;
-$$;
+END $$;
