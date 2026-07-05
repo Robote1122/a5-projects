@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export default function LoginPage() {
@@ -12,30 +12,74 @@ export default function LoginPage() {
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [localError, setLocalError] = useState('');
-    const { login, error, isAuthenticated } = useAuth();
+    const { user, login, error, isAuthenticated, checkAuth } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
 
-    // Если уже авторизован — редирект на главную
-    if (isAuthenticated) {
-        const from = location.state?.from || '/';
-        return <Navigate to={from} replace />;
-    }
+    console.log('📄 [LoginPage] Рендер', { 
+        isAuthenticated, 
+        user: user?.email || 'нет'
+    });
+
+    // Проверяем авторизацию при загрузке страницы логина
+    useEffect(() => {
+        console.log('📄 [LoginPage] Проверка авторизации на странице логина');
+        
+        // Если уже авторизованы — редирект
+        if (isAuthenticated) {
+            const from = location.state?.from || '/';
+            console.log('📄 [LoginPage] Уже авторизован, редирект на:', from);
+            navigate(from, { replace: true });
+            return;
+        }
+        
+        // Проверяем cookie через checkAuth
+        const verifyAuth = async () => {
+            const isAuth = await checkAuth();
+            if (isAuth) {
+                const from = location.state?.from || '/';
+                console.log('📄 [LoginPage] Авторизация подтверждена, редирект на:', from);
+                navigate(from, { replace: true });
+            }
+        };
+        
+        verifyAuth();
+    }, [isAuthenticated, checkAuth, navigate, location]);
+
+    // Реагируем на изменение isAuthenticated
+    useEffect(() => {
+        if (isAuthenticated) {
+            const from = location.state?.from || '/';
+            console.log('📄 [LoginPage] isAuthenticated стал true, редирект на:', from);
+            navigate(from, { replace: true });
+        }
+    }, [isAuthenticated, navigate, location]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        console.log('📄 [LoginPage] Отправка формы логина');
         setLocalError('');
         setLoading(true);
 
         const result = await login(email, password);
         setLoading(false);
 
-        if (result.success) {
-            navigate('/');
-        } else {
+        if (!result.success) {
             setLocalError(result.error || 'Ошибка входа');
         }
+        // Если успех — useEffect сработает на isAuthenticated
     };
+
+    // Если уже авторизованы — показываем загрузку (предотвращаем мигание)
+    if (isAuthenticated) {
+        return (
+            <div style={styles.container}>
+                <div style={styles.card}>
+                    <div style={styles.loadingText}>Перенаправление...</div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div style={styles.container}>
@@ -53,9 +97,10 @@ export default function LoginPage() {
                             style={styles.input}
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
-                            placeholder="admin@example.com"
+                            placeholder="user1@chat.com"
                             required
                             disabled={loading}
+                            autoComplete="email"
                         />
                     </div>
 
@@ -70,6 +115,7 @@ export default function LoginPage() {
                             required
                             disabled={loading}
                             minLength={6}
+                            autoComplete="current-password"
                         />
                     </div>
 
@@ -90,7 +136,7 @@ export default function LoginPage() {
 
                 <div style={styles.footer}>
                     <span style={styles.footerText}>
-                        Демо-аккаунт: admin@example.com
+                        Тестовые аккаунты: user1@chat.com / user123
                     </span>
                 </div>
             </div>
@@ -153,6 +199,9 @@ const styles = {
         color: 'var(--text-primary)',
         outline: 'none',
         transition: 'border-color 0.2s',
+        ':focus': {
+            borderColor: 'var(--accent)',
+        },
     },
     button: {
         padding: '12px',
@@ -191,5 +240,11 @@ const styles = {
     footerText: {
         fontSize: '12px',
         color: 'var(--text-muted)',
+    },
+    loadingText: {
+        textAlign: 'center',
+        color: 'var(--text-secondary)',
+        padding: '20px 0',
+        fontSize: '16px',
     },
 };

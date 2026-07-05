@@ -3,16 +3,32 @@
  * Защита маршрутов от неавторизованного доступа
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export default function ProtectedRoute({ children, requireAdmin = false }) {
-    const { isAuthenticated, loading, user } = useAuth();
+    const { isAuthenticated, loading, user, checkAuth } = useAuth();
     const location = useLocation();
 
-    // Показываем индикатор загрузки
+    console.log('🛡️ [ProtectedRoute] Рендер', {
+        isAuthenticated,
+        loading,
+        path: location.pathname,
+        user: user?.email || 'нет',
+        requireAdmin
+    });
+
+    // Проверяем авторизацию при загрузке защищённого маршрута
+    useEffect(() => {
+        console.log('🛡️ [ProtectedRoute] Проверка авторизации');
+        if (!isAuthenticated && !loading) {
+            checkAuth();
+        }
+    }, [isAuthenticated, loading, checkAuth]);
+
     if (loading) {
+        console.log('🛡️ [ProtectedRoute] Показываем индикатор загрузки');
         return (
             <div style={styles.loading}>
                 <span>Загрузка...</span>
@@ -20,16 +36,17 @@ export default function ProtectedRoute({ children, requireAdmin = false }) {
         );
     }
 
-    // Если не авторизован — редирект на /login с сохранением текущего пути
     if (!isAuthenticated) {
+        console.log('🛡️ [ProtectedRoute] Не авторизован, редирект на /login');
         return <Navigate to="/login" state={{ from: location.pathname }} replace />;
     }
 
-    // Проверка на права администратора
     if (requireAdmin && user?.role !== 'ADMIN') {
+        console.log('🛡️ [ProtectedRoute] Недостаточно прав, редирект на /');
         return <Navigate to="/" replace />;
     }
 
+    console.log('🛡️ [ProtectedRoute] Доступ разрешён');
     return children;
 }
 

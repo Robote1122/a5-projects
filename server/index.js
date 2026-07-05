@@ -9,6 +9,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const cookieParser = require('cookie-parser');
 
 const chatsRouter = require('./routes/chats');
 const authRouter = require('./routes/auth');
@@ -20,18 +21,21 @@ const PORT = process.env.PORT || 8001;
 
 /* ─── Middleware ─────────────────────────────────────── */
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
   credentials: true,
   methods: ['GET', 'POST', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['Set-Cookie'],
 }));
 
 app.use(express.json({ limit: '10mb' }));
+app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
 
 /* ─── Логирование запросов ───────────────────────────── */
 app.use((req, _res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  console.log('🍪 Cookie:', req.headers.cookie || 'Нет cookie');
   next();
 });
 

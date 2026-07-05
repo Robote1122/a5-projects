@@ -3,7 +3,7 @@
  * Основное приложение чата (требует авторизации)
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatHeader from './components/ChatHeader';
 import ChatWindow from './components/ChatWindow';
@@ -12,6 +12,8 @@ import { useChats } from './hooks/useChats';
 import PromptManager from './components/PromptManager';
 
 export default function MainApp() {
+    console.log('🏠 [MainApp] Рендер компонента');
+    
     const {
         chats,
         activeChatId,
@@ -26,14 +28,45 @@ export default function MainApp() {
         sendMessage,
     } = useChats();
 
-    const activeChat = chats.find(c => c.id === activeChatId) || null;
+    // Логируем состояние при каждом изменении
+    useEffect(() => {
+        console.log('📊 [MainApp] Состояние обновлено:', {
+            chatsCount: chats.length,
+            chatsType: typeof chats,
+            isArray: Array.isArray(chats),
+            activeChatId,
+            messagesCount: messages.length,
+            loading
+        });
+    }, [chats, activeChatId, messages, loading]);
 
-    const handleSelect = (id) => setActiveChatId(id);
-    const handleCreate = async () => await createChat();
-    const handleDelete = async (id) => await deleteChat(id);
+    // Защита от не-массива
+    const safeChats = Array.isArray(chats) ? chats : [];
+    const activeChat = safeChats.find(c => c.id === activeChatId) || null;
 
-    // Обертка для отправки сообщения с поддержкой стриминга
+    console.log('📊 [MainApp] Безопасные данные:', {
+        safeChatsCount: safeChats.length,
+        activeChat: activeChat?.title || 'нет',
+        activeChatId
+    });
+
+    const handleSelect = (id) => {
+        console.log(`🖱️ [MainApp] Выбран чат ${id}`);
+        setActiveChatId(id);
+    };
+    
+    const handleCreate = async () => {
+        console.log('🖱️ [MainApp] Создание нового чата');
+        await createChat();
+    };
+    
+    const handleDelete = async (id) => {
+        console.log(`🖱️ [MainApp] Удаление чата ${id}`);
+        await deleteChat(id);
+    };
+
     const handleSend = async (text) => {
+        console.log(`💬 [MainApp] Отправка сообщения:`, text.slice(0, 50));
         if (!text.trim() || sending) return;
         await sendMessage(text);
     };
@@ -41,7 +74,7 @@ export default function MainApp() {
     return (
         <div style={styles.root}>
             <Sidebar
-                chats={chats}
+                chats={safeChats}
                 activeChatId={activeChatId}
                 onSelect={handleSelect}
                 onCreate={handleCreate}

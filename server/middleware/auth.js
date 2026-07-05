@@ -1,22 +1,23 @@
 /**
  * middleware/auth.js
  * Middleware для проверки JWT токена и авторизации
- * Использует @latanda/auth-middleware
  */
 
 const { validateToken } = require('@latanda/auth-middleware');
-const { requireRole: requireRoleFromPackage } = require('@latanda/auth-middleware');
 const pool = require('../db');
 
 /**
  * Проверка наличия и валидности JWT токена
  */
 async function authenticate(req, res, next) {
+    console.log('\n🛡️ ====== AUTH MIDDLEWARE ======\n');
+    
     let token = null;
     
     // 1. Проверяем cookie
     if (req.cookies && req.cookies.token) {
         token = req.cookies.token;
+        console.log('🍪 Токен из cookie:', token.substring(0, 20) + '...');
     }
     
     // 2. Проверяем Authorization header
@@ -24,10 +25,13 @@ async function authenticate(req, res, next) {
         const parts = req.headers.authorization.split(' ');
         if (parts.length === 2 && parts[0] === 'Bearer') {
             token = parts[1];
+            console.log('🔑 Токен из Authorization header:', token.substring(0, 20) + '...');
         }
     }
     
     if (!token) {
+        console.log('❌ Токен не найден');
+        console.log('🛡️ ====== AUTH FAILED ======\n');
         return res.status(401).json({
             success: false,
             error: 'Неавторизован. Токен не найден.'
@@ -35,8 +39,16 @@ async function authenticate(req, res, next) {
     }
     
     // Валидация через пакет
+    console.log('🔍 Валидируем токен...');
     const result = validateToken(token, process.env.JWT_SECRET);
+    console.log('📊 Результат валидации:', {
+        valid: result?.valid,
+        userId: result?.user_id || result?.id
+    });
+    
     if (!result || !result.valid) {
+        console.log('❌ Токен невалидный');
+        console.log('🛡️ ====== AUTH FAILED ======\n');
         return res.status(401).json({
             success: false,
             error: 'Неавторизован. Невалидный токен.'
@@ -44,12 +56,17 @@ async function authenticate(req, res, next) {
     }
     
     try {
+        const userId = result.user_id || result.id;
+        console.log('🔍 Ищем пользователя в БД по ID:', userId);
+        
         const userResult = await pool.query(
             'SELECT id, email, full_name, role, is_active FROM users WHERE id = $1',
-            [result.user_id || result.id]
+            [userId]
         );
         
         if (userResult.rows.length === 0) {
+            console.log('❌ Пользователь не найден в БД');
+            console.log('🛡️ ====== AUTH FAILED ======\n');
             return res.status(401).json({
                 success: false,
                 error: 'Пользователь не найден.'
@@ -57,8 +74,16 @@ async function authenticate(req, res, next) {
         }
         
         const user = userResult.rows[0];
+        console.log('✅ Пользователь найден:', {
+            id: user.id,
+            email: user.email,
+            role: user.role,
+            is_active: user.is_active
+        });
         
         if (!user.is_active) {
+            console.log('❌ Аккаунт заблокирован');
+            console.log('🛡️ ====== AUTH FAILED ======\n');
             return res.status(403).json({
                 success: false,
                 error: 'Аккаунт заблокирован.'
@@ -66,9 +91,13 @@ async function authenticate(req, res, next) {
         }
         
         req.user = user;
+        console.log('✅ Аутентификация успешна');
+        console.log('🛡️ ====== AUTH SUCCESS ======\n');
         next();
     } catch (error) {
-        console.error('[Auth Middleware Error]', error);
+        console.error('❌ Ошибка в middleware:', error);
+        console.error('❌ Stack:', error.stack);
+        console.log('🛡️ ====== AUTH ERROR ======\n');
         return res.status(500).json({
             success: false,
             error: 'Внутренняя ошибка сервера.'

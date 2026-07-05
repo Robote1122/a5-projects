@@ -8,7 +8,7 @@
 
 require('dotenv').config();
 const { Pool } = require('pg');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 
 const pool = new Pool({
     host: process.env.POSTGRES_HOST || 'localhost',
@@ -20,12 +20,21 @@ const pool = new Pool({
 
 function parseArgs() {
     const args = {};
-    process.argv.slice(2).forEach((arg) => {
+    const argv = process.argv.slice(2);
+    
+    for (let i = 0; i < argv.length; i++) {
+        const arg = argv[i];
         if (arg.startsWith('--')) {
-            const [key, value] = arg.slice(2).split('=');
-            args[key] = value || true;
+            const key = arg.slice(2);
+            // Проверяем, есть ли значение (не начинается с -- и не undefined)
+            if (i + 1 < argv.length && !argv[i + 1].startsWith('--')) {
+                args[key] = argv[i + 1];
+                i++; // пропускаем значение
+            } else {
+                args[key] = true;
+            }
         }
-    });
+    }
     return args;
 }
 
@@ -37,14 +46,20 @@ async function createUser() {
     const fullName = args.name || args.full_name || '';
     const role = args.role || 'USER';
     
+    console.log('📋 Параметры:');
+    console.log(`   Email: ${email}`);
+    console.log(`   Имя: ${fullName}`);
+    console.log(`   Роль: ${role}`);
+    console.log('');
+    
     if (!email || !password) {
         console.error('❌ Укажите --email и --password');
         console.log('Пример: node scripts/create-user.js --email user@example.com --password 123456 --name "Иван" --role USER');
         process.exit(1);
     }
     
-    if (!['USER', 'MIT', 'IT', 'ADMIN'].includes(role)) {
-        console.error('❌ Неверная роль. Доступные: USER, MIT, IT, ADMIN');
+    if (!['USER', 'MIT', 'IT', 'ADMIN'].includes(role.toUpperCase())) {
+        console.error(`❌ Неверная роль: ${role}. Доступные: USER, MIT, IT, ADMIN`);
         process.exit(1);
     }
     
@@ -69,7 +84,7 @@ async function createUser() {
             `INSERT INTO users (email, password_hash, full_name, role) 
              VALUES ($1, $2, $3, $4) 
              RETURNING id, email, full_name, role, created_at`,
-            [email.toLowerCase(), passwordHash, fullName, role]
+            [email.toLowerCase(), passwordHash, fullName, role.toUpperCase()]
         );
         
         console.log('✅ Пользователь создан:');
