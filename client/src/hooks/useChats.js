@@ -22,7 +22,6 @@ export function useChats() {
     /* Загрузить список чатов */
     const loadChats = useCallback(async () => {
         console.log('🔄 [loadChats] Начинаем загрузку чатов...');
-        console.log('🔄 [loadChats] Текущее состояние chats:', chats);
         
         try {
             const data = await api.getChats();
@@ -34,7 +33,6 @@ export function useChats() {
                 length: Array.isArray(data) ? data.length : 'N/A'
             });
             
-            // Гарантируем, что chats всегда массив
             const chatsArray = Array.isArray(data) ? data : [];
             console.log('✅ [loadChats] Устанавливаем чаты:', chatsArray);
             setChats(chatsArray);
@@ -46,7 +44,7 @@ export function useChats() {
                 stack: e.stack
             });
             setError(e.message);
-            setChats([]); // Всегда массив
+            setChats([]);
         }
     }, []);
 
@@ -106,7 +104,6 @@ export function useChats() {
             const chat = await api.createChat('Новый чат');
             console.log('✅ [createChat] Чат создан:', chat);
             
-            // ⭐ Убедимся, что chat - это объект с id
             if (!chat || !chat.id) {
                 console.error('❌ [createChat] Неверный формат ответа:', chat);
                 throw new Error('Неверный формат ответа от сервера');
@@ -118,7 +115,6 @@ export function useChats() {
                 return newChats;
             });
             
-            // ⭐ Устанавливаем активный чат
             setActiveChatId(chat.id);
             console.log('📊 [createChat] Активный чат установлен:', chat.id);
             
@@ -166,8 +162,133 @@ export function useChats() {
         
         setSending(true);
         
-        // ... остальной код
-    }, [activeChatId, sending]);
+        // ⭐ Добавляем сообщение пользователя в локальный стейт (оптимистичное обновление)
+        const tempUserMessage = {
+            id: 'temp-' + Date.now(),
+            chat_id: activeChatId,
+            role: 'user',
+            content: content.trim(),
+            created_at: Math.floor(Date.now() / 1000),
+        };
+        setMessages(prev => [...prev, tempUserMessage]);
+        
+        try {
+            console.log('📤 [sendMessage] Вызов api.sendMessage...');
+            
+            // ⭐ Используем fetch для обработки стриминга
+            const response = await fetch(`/api/chats/${activeChatId}/messages`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    role: 'user',
+                    content: content.trim()
+                }),
+                credentials: 'include',
+            });
+            
+            console.log('📊 [sendMessage] Ответ от сервера:', {
+                status: response.status,
+                ok: response.ok,
+                headers: Object.fromEntries(response.headers.entries())
+            });
+            
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                console.error('❌ [sendMessage] Ошибка сервера:', errorData);
+                throw new Error(errorData.error || `Ошибка ${response.status}`);
+            }
+            
+            // Проверяем, стриминг это или обычный ответ
+            const contentType = response.headers.get('content-type') || '';
+            
+            if (contentType.includes('text/event-stream')) {
+                // ⭐ Стриминг
+                console.log('📡 [sendMessage] Режим стриминга');
+                setIsStreaming(true);
+                setStreamingContent('');
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let fullContent = '';
+                let buffer = '';
+                
+                try {
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        
+                        buffer += decoder.decode(value, { stream: true });
+                        const parts = buffer.split('\n\n');
+                        buffer = parts.pop() || '';
+                        
+                        for (const part of parts) {
+                            const line = part.trim();
+                            if (!line.startsWith('data: ')) continue;
+                            
+                            try {
+                                const data = JSON.parse(line.slice(6));
+                                if (data.done) {
+                                    console.log('✅ [sendMessage] Стриминг завершён');
+                                    continue;
+                                }
+                                if (data.content) {
+                                    fullContent += data.content;
+                                    setStreamingContent(fullContent);
+                                }
+                                if (data.error) {
+                                    console.error('❌ [sendMessage] Ошибка стриминга:', data.error);
+                                    throw new Error(data.error);
+                                }
+                            } catch (parseError) {
+                                console.warn('⚠️ [sendMessage] Ошибка парсинга SSE:', parseError);
+                            }
+                        }
+                    }
+                    
+                    // Сохраняем ответ ассистента
+                    if (fullContent) {
+                        const assistantMessage = {
+                            id: 'assistant-' + Date.now(),
+                            chat_id: activeChatId,
+                            role: 'assistant',
+                            content: fullContent,
+                            created_at: Math.floor(Date.now() / 1000),
+                        };
+                        setMessages(prev => [...prev, assistantMessage]);
+                    }
+                    
+                } catch (streamError) {
+                    console.error('❌ [sendMessage] Ошибка стриминга:', streamError);
+                    throw streamError;
+                } finally {
+                    setIsStreaming(false);
+                    setStreamingContent('');
+                }
+            } else {
+                // ⭐ Обычный JSON ответ
+                console.log('📡 [sendMessage] Обычный режим (не стриминг)');
+                const data = await response.json();
+                console.log('✅ [sendMessage] Ответ получен:', data);
+                
+                if (data.success) {
+                    // Обновляем список сообщений
+                    await loadMessages(activeChatId);
+                } else {
+                    throw new Error(data.error || 'Ошибка отправки сообщения');
+                }
+            }
+            
+        } catch (error) {
+            console.error('❌ [sendMessage] Ошибка:', error);
+            setError(error.message);
+            // Удаляем временное сообщение пользователя при ошибке
+            setMessages(prev => prev.filter(m => !m.id.startsWith('temp-')));
+        } finally {
+            setSending(false);
+        }
+    }, [activeChatId, sending, loadMessages]);
 
     console.log('📊 [useChats] Текущее состояние:', {
         chatsCount: chats.length,

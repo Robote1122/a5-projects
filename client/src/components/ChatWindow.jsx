@@ -33,9 +33,10 @@ function Avatar({ role }) {
 // Компонент сообщения с Markdown
 function Message({ msg }) {
   const isUser = msg.role === 'user';
-  const time = new Date(msg.created_at * 1000).toLocaleTimeString('ru-RU', {
+  
+  const time = new Date(msg.created_at).toLocaleTimeString('ru-RU', {
     hour: '2-digit', minute: '2-digit',
-  });
+});
 
   return (
     <div style={{ ...styles.msgRow, ...(isUser ? styles.msgRowUser : {}) }}>

@@ -6,12 +6,21 @@
 import React, { useState } from 'react';
 
 function formatDate(ts) {
-  const d = new Date(ts * 1000);
+  // ts может быть строкой ISO или числом
+  const d = new Date(ts);
+  
+  // Проверка на валидность даты
+  if (isNaN(d.getTime())) {
+    return 'неизвестно';
+  }
+  
   const now = new Date();
-  const diff = (now - d) / 1000;
+  const diff = (now - d) / 1000; // разница в секундах
+  
   if (diff < 60)       return 'только что';
   if (diff < 3600)     return `${Math.floor(diff / 60)} мин`;
   if (diff < 86400)    return `${Math.floor(diff / 3600)} ч`;
+  if (diff < 172800)   return 'вчера';
   return d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' });
 }
 
