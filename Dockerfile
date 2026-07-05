@@ -1,33 +1,27 @@
-# Stage 1: Build frontend
-FROM node:22-alpine AS client-builder
-WORKDIR /app/client
-COPY client/package*.json ./
-RUN npm install
-COPY client/ .
-RUN npm run build
-
-# Stage 2: Build backend
+# Dockerfile для бэкенда (Node.js)
 FROM node:22-alpine
+
 WORKDIR /app
 
-# Копируем зависимости бэкенда
-COPY server/package*.json ./server/
-RUN cd server && npm install --production
+# Копируем package.json и устанавливаем зависимости
+COPY server/package*.json ./
+RUN npm ci --only=production
 
-# Копируем built frontend
-COPY --from=client-builder /app/client/dist /app/client/dist
+# Копируем исходный код
+COPY server/ ./
 
-# Копируем код бэкенда
-COPY server/ ./server/
+# Копируем собранный фронтенд (если есть)
+COPY client/dist ./public
 
-# Копируем docs (опционально)
-COPY docs/ ./docs/
+# Создаём папки для данных
+RUN mkdir -p /app/data /app/logs
 
-WORKDIR /app/server
+# Переменные окружения
+ENV NODE_ENV=production
+ENV PORT=8001
 
-# Создаем папку для данных
-RUN mkdir -p /app/server/data
-
+# Открываем порт
 EXPOSE 8001
 
+# Запускаем сервер
 CMD ["node", "index.js"]

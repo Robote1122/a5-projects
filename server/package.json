@@ -9,6 +9,7 @@
     "migrate": "node scripts/migrate.js",
     "migrate:up": "node scripts/migrate.js up",
     "migrate:status": "node scripts/migrate.js status",
+    "migrate:docker": "node scripts/docker-migrate.js",
     "set-admin-password": "node scripts/set-admin-password.js"
   },
   "dependencies": {

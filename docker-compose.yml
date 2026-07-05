@@ -7,60 +7,51 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: chat-postgres
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:-chat_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_password_here}
+      POSTGRES_DB: ${POSTGRES_DB:-chat_app}
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=ru_RU.UTF-8"
     volumes:
-      # Данные PostgreSQL сохраняются в Docker volume (не на хосте)
       - postgres_data:/var/lib/postgresql/data
-      # Скрипты инициализации
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
     ports:
-      - "${POSTGRES_PORT}:5432"
+      - "127.0.0.1:5432:5432"
     networks:
       - app-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-chat_user} -d ${POSTGRES_DB:-chat_app}"]
       interval: 10s
       timeout: 5s
       retries: 5
-    restart: unless-stopped
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
   # ============================================
   # NODE.JS БЭКЕНД
   # ============================================
   backend:
     build:
-      context: ./server
+      context: .
       dockerfile: Dockerfile
     container_name: chat-backend
-    ports:
-      - "127.0.0.1:${PORT}:${PORT}"
+    restart: unless-stopped
     environment:
-      - NODE_ENV=${NODE_ENV}
-      - PORT=${PORT}
-      - POSTGRES_HOST=${POSTGRES_HOST}
-      - POSTGRES_PORT=${POSTGRES_PORT}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DATABASE=${POSTGRES_DB}
+      - NODE_ENV=production
+      - PORT=8001
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-chat_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-secure_password_here}
+      - POSTGRES_DATABASE=${POSTGRES_DB:-chat_app}
       - JWT_SECRET=${JWT_SECRET}
-      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN}
-      - AI_ENABLED=${AI_ENABLED}
-      - AI_SERVICE_URL=${AI_SERVICE_URL}
-      # Путь к SQLite (если используется)
-      - DB_PATH=${DB_PATH}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
+      - AI_ENABLED=${AI_ENABLED:-true}
+      - AI_SERVICE_URL=${AI_SERVICE_URL:-http://ai-service:8002}
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
+    ports:
+      - "127.0.0.1:8001:8001"
     volumes:
-      # Монтируем папку с данными на хосте в /app/data внутри контейнера
       - ./server/data:/app/data
-      # Монтируем логи
       - ./logs:/app/logs
     depends_on:
       postgres:
@@ -69,7 +60,6 @@ services:
         condition: service_started
     networks:
       - app-network
-    restart: unless-stopped
     logging:
       driver: "json-file"
       options:
@@ -84,25 +74,22 @@ services:
       context: ./ai-service
       dockerfile: Dockerfile
     container_name: chat-ai
-    ports:
-      - "127.0.0.1:8002:8002"
+    restart: unless-stopped
     environment:
       - PORT=8002
       - GIGACHAT_AUTH_DATA=${GIGACHAT_AUTH_DATA}
-      - GIGACHAT_MODEL=${GIGACHAT_MODEL}
-      - GIGACHAT_CHAT_MODEL=${GIGACHAT_CHAT_MODEL}
-      # Пути внутри контейнера
-      - DB_PATH=${AI_DB_PATH}
-      - PROMPT_START_PATH=${PROMPT_START_PATH}
-      - PROMPT_CONTINUE_PATH=${PROMPT_CONTINUE_PATH}
+      - GIGACHAT_EMBED_MODEL=${GIGACHAT_EMBED_MODEL:-Embeddings}
+      - GIGACHAT_CHAT_MODEL=${GIGACHAT_CHAT_MODEL:-GigaChat}
+      - DB_PATH=/app/data/safety_checklist_db
+      - PROMPT_1_PATH=/app/prompts/prompt_start.txt
+      - PROMPT_2_PATH=/app/prompts/prompt_continue.txt
+    ports:
+      - "127.0.0.1:8002:8002"
     volumes:
-      # Монтируем папку с данными ChromaDB на хосте в /app/data внутри контейнера
       - ./ai-service/data:/app/data
-      # Монтируем папку с промптами на хосте в /app/prompts внутри контейнера
       - ./ai-service/prompts:/app/prompts
     networks:
       - app-network
-    restart: unless-stopped
     logging:
       driver: "json-file"
       options:
@@ -113,7 +100,6 @@ services:
 # VOLUMES
 # ============================================
 volumes:
-  # PostgreSQL данные хранятся в Docker volume
   postgres_data:
     driver: local
 
