@@ -4,15 +4,55 @@
  */
 
 const router = require('express').Router();
-const { generateToken } = require('@latanda/auth-middleware/jwt');
-const { requireRole } = require('@latanda/auth-middleware/rbac');
-const { 
-    findUserByEmail, 
-    createUser, 
-    verifyPassword, 
-    updateLastLogin 
-} = require('../services/userService');
-const { authenticate } = require('../middleware/auth');
+const { generateToken } = require('@latanda/auth-middleware');
+const pool = require('../db');
+const bcrypt = require('bcrypt');
+const { authenticate, requireRole } = require('../middleware/auth');
+
+/**
+ * Поиск пользователя по email
+ */
+async function findUserByEmail(email) {
+    const result = await pool.query(
+        'SELECT id, email, password_hash, full_name, role, is_active FROM users WHERE email = $1',
+        [email.toLowerCase()]
+    );
+    return result.rows[0] || null;
+}
+
+/**
+ * Создание пользователя
+ */
+async function createUser(email, password, fullName, role = 'USER') {
+    const saltRounds = 12;
+    const passwordHash = await bcrypt.hash(password, saltRounds);
+    
+    const result = await pool.query(
+        `INSERT INTO users (email, password_hash, full_name, role) 
+         VALUES ($1, $2, $3, $4) 
+         RETURNING id, email, full_name, role, created_at`,
+        [email.toLowerCase(), passwordHash, fullName, role]
+    );
+    
+    return result.rows[0];
+}
+
+/**
+ * Проверка пароля
+ */
+async function verifyPassword(user, password) {
+    return await bcrypt.compare(password, user.password_hash);
+}
+
+/**
+ * Обновление last_login
+ */
+async function updateLastLogin(userId) {
+    await pool.query(
+        'UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = $1',
+        [userId]
+    );
+}
 
 /* ─── POST /api/auth/register ──────────────────────────── */
 // Только для администраторов
@@ -103,7 +143,7 @@ router.post('/login', async (req, res) => {
             id: user.id,
             email: user.email,
             role: user.role,
-        });
+        }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '7d' });
         
         // Устанавливаем httpOnly cookie
         res.cookie('token', token, {
@@ -149,7 +189,6 @@ router.get('/me', authenticate, (req, res) => {
 // Только для администраторов
 router.get('/users', authenticate, requireRole('ADMIN'), async (req, res) => {
     try {
-        const pool = require('../db');
         const result = await pool.query(
             `SELECT id, email, full_name, role, created_at, last_login, is_active 
              FROM users 
@@ -184,7 +223,6 @@ router.patch('/users/:id/role', authenticate, requireRole('ADMIN'), async (req, 
             });
         }
         
-        const pool = require('../db');
         const result = await pool.query(
             `UPDATE users SET role = $1, updated_at = CURRENT_TIMESTAMP 
              WHERE id = $2 

@@ -4,8 +4,8 @@
  * Использует @latanda/auth-middleware
  */
 
-const { validateToken } = require('@latanda/auth-middleware/jwt');
-const { requireRole: requireRoleFromPackage } = require('@latanda/auth-middleware/rbac');
+const { validateToken } = require('@latanda/auth-middleware');
+const { requireRole: requireRoleFromPackage } = require('@latanda/auth-middleware');
 const pool = require('../db');
 
 /**
@@ -35,8 +35,8 @@ async function authenticate(req, res, next) {
     }
     
     // Валидация через пакет
-    const decoded = validateToken(token, process.env.JWT_SECRET);
-    if (!decoded) {
+    const result = validateToken(token, process.env.JWT_SECRET);
+    if (!result || !result.valid) {
         return res.status(401).json({
             success: false,
             error: 'Неавторизован. Невалидный токен.'
@@ -44,19 +44,19 @@ async function authenticate(req, res, next) {
     }
     
     try {
-        const result = await pool.query(
+        const userResult = await pool.query(
             'SELECT id, email, full_name, role, is_active FROM users WHERE id = $1',
-            [decoded.id]
+            [result.user_id || result.id]
         );
         
-        if (result.rows.length === 0) {
+        if (userResult.rows.length === 0) {
             return res.status(401).json({
                 success: false,
                 error: 'Пользователь не найден.'
             });
         }
         
-        const user = result.rows[0];
+        const user = userResult.rows[0];
         
         if (!user.is_active) {
             return res.status(403).json({
@@ -88,9 +88,15 @@ function requireRole(roles) {
             });
         }
         
-        // Используем requireRole из пакета
-        const check = requireRoleFromPackage(roles);
-        return check(req, res, next);
+        const allowedRoles = Array.isArray(roles) ? roles : [roles];
+        if (!allowedRoles.includes(req.user.role)) {
+            return res.status(403).json({
+                success: false,
+                error: 'Недостаточно прав. Требуется роль: ' + allowedRoles.join(', ')
+            });
+        }
+        
+        next();
     };
 }
 
@@ -161,15 +167,15 @@ async function optionalAuth(req, res, next) {
     }
     
     if (token) {
-        const decoded = validateToken(token, process.env.JWT_SECRET);
-        if (decoded) {
+        const result = validateToken(token, process.env.JWT_SECRET);
+        if (result && result.valid) {
             try {
-                const result = await pool.query(
+                const userResult = await pool.query(
                     'SELECT id, email, full_name, role FROM users WHERE id = $1',
-                    [decoded.id]
+                    [result.user_id || result.id]
                 );
-                if (result.rows.length > 0) {
-                    req.user = result.rows[0];
+                if (userResult.rows.length > 0) {
+                    req.user = userResult.rows[0];
                 }
             } catch (error) {
                 // Игнорируем
