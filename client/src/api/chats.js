@@ -1,27 +1,57 @@
 /**
  * api/chats.js
- * Все запросы к бэкенду. BASE_URL = /api (проксируется vite dev / nginx prod).
+ * Все запросы к бэкенду с поддержкой авторизации
  */
+
+import axios from 'axios';
 
 const BASE = '/api';
 
-async function request(method, path, body) {
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    headers: body ? { 'Content-Type': 'application/json' } : {},
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const json = await res.json();
-  if (!json.success) throw new Error(json.error || 'Ошибка сервера');
-  return json.data;
+// Настройка axios для отправки cookie
+axios.defaults.withCredentials = true;
+
+// Перехватчик для обработки 401 ошибок
+axios.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        if (error.response?.status === 401) {
+            // Редирект на логин
+            if (typeof window !== 'undefined') {
+                window.location.href = '/login';
+            }
+        }
+        return Promise.reject(error);
+    }
+);
+
+async function request(method, path, data = null) {
+    try {
+        const config = {
+            method,
+            url: `${BASE}${path}`,
+            withCredentials: true,
+        };
+
+        if (data) {
+            config.data = data;
+        }
+
+        const response = await axios(config);
+        return response.data;
+    } catch (error) {
+        if (error.response?.data) {
+            throw new Error(error.response.data.error || 'Ошибка сервера');
+        }
+        throw new Error('Ошибка соединения с сервером');
+    }
 }
 
 export const api = {
-  getChats:       ()             => request('GET',    '/chats'),
-  createChat:     (title)        => request('POST',   '/chats', { title }),
-  getChat:        (id)           => request('GET',    `/chats/${id}`),
-  deleteChat:     (id)           => request('DELETE', `/chats/${id}`),
-  getMessages:    (id)           => request('GET',    `/chats/${id}/messages`),
-  sendMessage:    (id, role, content) =>
-    request('POST', `/chats/${id}/messages`, { role, content }),
+    getChats: () => request('GET', '/chats'),
+    createChat: (title) => request('POST', '/chats', { title }),
+    getChat: (id) => request('GET', `/chats/${id}`),
+    deleteChat: (id) => request('DELETE', `/chats/${id}`),
+    getMessages: (id) => request('GET', `/chats/${id}/messages`),
+    sendMessage: (id, role, content) =>
+        request('POST', `/chats/${id}/messages`, { role, content }),
 };

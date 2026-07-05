@@ -1,69 +1,47 @@
 /**
  * api/prompts.js
- * API для управления промптами AI
+ * API для управления промптами AI с поддержкой авторизации
  */
 
-const BASE = '/api/prompts';
+import axios from 'axios';
 
-// Вспомогательная функция для запросов (без обертки success)
+const BASE = '/api/prompts';
+axios.defaults.withCredentials = true;
+
 async function promptRequest(method, path, body = null) {
-    const options = {
-        method,
-        headers: {},
-    };
-    
-    // Если body это FormData - отправляем как есть
-    if (body instanceof FormData) {
-        options.body = body;
-    } else if (body) {
-        options.headers['Content-Type'] = 'application/json';
-        options.body = JSON.stringify(body);
+    try {
+        const config = {
+            method,
+            url: `${BASE}${path}`,
+            withCredentials: true,
+        };
+
+        if (body instanceof FormData) {
+            config.data = body;
+        } else if (body) {
+            config.data = body;
+            config.headers = { 'Content-Type': 'application/json' };
+        }
+
+        const response = await axios(config);
+        return response.data;
+    } catch (error) {
+        if (error.response?.data) {
+            throw new Error(error.response.data.error || 'Ошибка запроса');
+        }
+        throw new Error('Ошибка соединения с сервером');
     }
-    
-    const response = await fetch(`${BASE}${path}`, options);
-    const data = await response.json();
-    
-    if (!response.ok) {
-        throw new Error(data.error || 'Ошибка запроса');
-    }
-    
-    return data;
 }
 
 export const promptsApi = {
-    /**
-     * Получить содержимое промпта
-     * @param {string} type - 'start' или 'continue'
-     * @returns {Promise<{success: boolean, content: string}>}
-     */
     getPrompt: (type) => promptRequest('GET', `/${type}`),
-    
-    /**
-     * Обновить промпт через текст
-     * @param {string} type - 'start' или 'continue'
-     * @param {string} content - новое содержимое
-     * @returns {Promise<{success: boolean, message: string}>}
-     */
-    updatePrompt: (type, content) => 
+    updatePrompt: (type, content) =>
         promptRequest('POST', `/${type}`, { prompt_type: type, content }),
-    
-    /**
-     * Загрузить файл промпта (.txt)
-     * @param {string} type - 'start' или 'continue'
-     * @param {File} file - файл .txt
-     * @returns {Promise<{success: boolean, message: string, filename: string}>}
-     */
     uploadPrompt: (type, file) => {
         const formData = new FormData();
         formData.append('file', file);
         return promptRequest('POST', `/${type}/upload`, formData);
     },
-    
-    /**
-     * Восстановить промпт из бэкапа
-     * @param {string} type - 'start' или 'continue'
-     * @returns {Promise<{success: boolean, message: string}>}
-     */
-    restorePrompt: (type) => 
+    restorePrompt: (type) =>
         promptRequest('POST', `/${type}/restore`),
 };
