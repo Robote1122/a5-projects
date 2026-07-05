@@ -4,12 +4,14 @@
  */
 
 import React from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export default function ProtectedRoute({ children, requireAdmin = false }) {
     const { isAuthenticated, loading, user } = useAuth();
+    const location = useLocation();
 
+    // Показываем индикатор загрузки
     if (loading) {
         return (
             <div style={styles.loading}>
@@ -18,10 +20,12 @@ export default function ProtectedRoute({ children, requireAdmin = false }) {
         );
     }
 
+    // Если не авторизован — редирект на /login с сохранением текущего пути
     if (!isAuthenticated) {
-        return <Navigate to="/login" replace />;
+        return <Navigate to="/login" state={{ from: location.pathname }} replace />;
     }
 
+    // Проверка на права администратора
     if (requireAdmin && user?.role !== 'ADMIN') {
         return <Navigate to="/" replace />;
     }

@@ -20,7 +20,13 @@ export const AuthProvider = ({ children }) => {
 
     // Проверка авторизации при загрузке
     useEffect(() => {
+    // Проверяем, не на странице ли логина мы находимся
+    if (window.location.pathname !== '/login') {
         checkAuth();
+    } else {
+        // Если на странице логина - просто отключаем загрузку
+        setLoading(false);
+        }
     }, []);
 
     const checkAuth = async () => {

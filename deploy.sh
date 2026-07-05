@@ -21,12 +21,10 @@ mkdir -p ai-service/data
 mkdir -p ai-service/prompts
 mkdir -p logs
 
-# Копируем существующие данные если есть
 if [ -d "ai-service/safety_checklist_db" ]; then
   cp -r ai-service/safety_checklist_db/* ai-service/data/ 2>/dev/null || true
 fi
 
-# Копируем промпты если есть
 if [ -f "ai-service/prompt_start.txt" ]; then
   cp ai-service/prompt_start.txt ai-service/prompts/
 fi
@@ -45,6 +43,6 @@ echo ""
 echo "✅ Деплой завершён!"
 echo "   Backend: http://localhost:8001"
 echo "   AI Service: http://localhost:8002"
-echo "   PostgreSQL: localhost:5432"
+echo "   Nginx: http://localhost (если включен)"
 echo ""
 echo "📊 Логи: docker-compose logs -f"

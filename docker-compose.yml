@@ -27,7 +27,7 @@ services:
       retries: 5
 
   # ============================================
-  # NODE.JS БЭКЕНД
+  # NODE.JS БЭКЕНД (порт 8001)
   # ============================================
   backend:
     build:
@@ -46,7 +46,7 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
       - AI_ENABLED=${AI_ENABLED:-true}
-      - AI_SERVICE_URL=${AI_SERVICE_URL:-http://ai-service:8002}
+      - AI_SERVICE_URL=http://ai-service:8002
       - CORS_ORIGIN=${CORS_ORIGIN:-*}
     ports:
       - "127.0.0.1:8001:8001"
@@ -67,7 +67,7 @@ services:
         max-file: "3"
 
   # ============================================
-  # PYTHON AI СЕРВИС
+  # PYTHON AI СЕРВИС (порт 8002)
   # ============================================
   ai-service:
     build:

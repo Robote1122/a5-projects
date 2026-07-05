@@ -3,8 +3,8 @@
  * Страница входа
  */
 
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export default function LoginPage() {
@@ -12,8 +12,15 @@ export default function LoginPage() {
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [localError, setLocalError] = useState('');
-    const { login, error } = useAuth();
+    const { login, error, isAuthenticated } = useAuth();
     const navigate = useNavigate();
+    const location = useLocation();
+
+    // Если уже авторизован — редирект на главную
+    if (isAuthenticated) {
+        const from = location.state?.from || '/';
+        return <Navigate to={from} replace />;
+    }
 
     const handleSubmit = async (e) => {
         e.preventDefault();
