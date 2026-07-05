@@ -1,16 +1,15 @@
 /**
  * middleware/auth.js
  * Middleware для проверки JWT токена и авторизации
+ * Использует @latanda/auth-middleware
  */
 
-const { verifyToken } = require('../services/jwtService');
+const { validateToken } = require('@latanda/auth-middleware/jwt');
+const { requireRole: requireRoleFromPackage } = require('@latanda/auth-middleware/rbac');
 const pool = require('../db');
 
 /**
  * Проверка наличия и валидности JWT токена
- * Токен может быть передан в:
- * - httpOnly cookie (name: 'token')
- * - Authorization header (Bearer <token>)
  */
 async function authenticate(req, res, next) {
     let token = null;
@@ -35,8 +34,8 @@ async function authenticate(req, res, next) {
         });
     }
     
-    // Верифицируем токен
-    const decoded = verifyToken(token);
+    // Валидация через пакет
+    const decoded = validateToken(token, process.env.JWT_SECRET);
     if (!decoded) {
         return res.status(401).json({
             success: false,
@@ -44,7 +43,6 @@ async function authenticate(req, res, next) {
         });
     }
     
-    // Проверяем, существует ли пользователь в БД
     try {
         const result = await pool.query(
             'SELECT id, email, full_name, role, is_active FROM users WHERE id = $1',
@@ -60,7 +58,6 @@ async function authenticate(req, res, next) {
         
         const user = result.rows[0];
         
-        // Проверяем, активен ли пользователь
         if (!user.is_active) {
             return res.status(403).json({
                 success: false,
@@ -68,7 +65,6 @@ async function authenticate(req, res, next) {
             });
         }
         
-        // Добавляем пользователя в req
         req.user = user;
         next();
     } catch (error) {
@@ -81,7 +77,7 @@ async function authenticate(req, res, next) {
 }
 
 /**
- * Проверка роли пользователя
+ * Проверка роли (обёртка над пакетом)
  */
 function requireRole(roles) {
     return (req, res, next) => {
@@ -92,22 +88,14 @@ function requireRole(roles) {
             });
         }
         
-        // Если roles - строка, преобразуем в массив
-        const allowedRoles = Array.isArray(roles) ? roles : [roles];
-        
-        if (!allowedRoles.includes(req.user.role)) {
-            return res.status(403).json({
-                success: false,
-                error: 'Недостаточно прав. Требуется роль: ' + allowedRoles.join(', ')
-            });
-        }
-        
-        next();
+        // Используем requireRole из пакета
+        const check = requireRoleFromPackage(roles);
+        return check(req, res, next);
     };
 }
 
 /**
- * Проверка владения ресурсом (чатом)
+ * Проверка владения ресурсом
  */
 async function requireOwnership(req, res, next) {
     if (!req.user) {
@@ -156,7 +144,7 @@ async function requireOwnership(req, res, next) {
 }
 
 /**
- * Опциональная аутентификация (не требует токена)
+ * Опциональная аутентификация
  */
 async function optionalAuth(req, res, next) {
     let token = null;
@@ -173,7 +161,7 @@ async function optionalAuth(req, res, next) {
     }
     
     if (token) {
-        const decoded = verifyToken(token);
+        const decoded = validateToken(token, process.env.JWT_SECRET);
         if (decoded) {
             try {
                 const result = await pool.query(
@@ -184,7 +172,7 @@ async function optionalAuth(req, res, next) {
                     req.user = result.rows[0];
                 }
             } catch (error) {
-                // Игнорируем ошибки при опциональной аутентификации
+                // Игнорируем
             }
         }
     }

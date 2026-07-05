@@ -10,6 +10,10 @@ const cookieParser = require('cookie-parser');
 const path = require('path');
 const fileUpload = require('express-fileupload');
 
+// Импортируем из @latanda/auth-middleware
+const { createAuthMiddleware, requireRole } = require('@latanda/auth-middleware');
+
+const { findUserById } = require('./services/userService');
 const chatsRouter = require('./routes/chats');
 const authRouter = require('./routes/auth');
 const promptsRouter = require('./routes/prompts');
@@ -35,6 +39,13 @@ app.use(fileUpload({
     safeFileNames: true,
 }));
 
+/* ─── Настройка auth middleware ──────────────────────── */
+const authMiddleware = createAuthMiddleware({
+    secret: process.env.JWT_SECRET,
+    getUserById: findUserById,
+    cookieName: 'token', // Имя cookie с токеном
+});
+
 /* ─── Логирование запросов ───────────────────────────── */
 app.use((req, _res, next) => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
@@ -42,9 +53,21 @@ app.use((req, _res, next) => {
 });
 
 /* ─── API маршруты ───────────────────────────────────── */
-app.use('/api/chats', chatsRouter);
+// Используем authMiddleware для всех защищённых роутов
+app.use('/api/chats', authMiddleware, chatsRouter);
+app.use('/api/prompts', authMiddleware, promptsRouter);
+
+// Auth роуты (логин, регистрация) - без middleware
 app.use('/api/auth', authRouter);
-app.use('/api/prompts', promptsRouter);
+
+// Пример админского роута с проверкой роли
+app.get('/api/admin/health', authMiddleware, requireRole('ADMIN'), (req, res) => {
+    res.json({ 
+        success: true, 
+        message: 'Admin area',
+        user: req.user 
+    });
+});
 
 /* ─── Health check ───────────────────────────────────── */
 app.get('/api/health', async (_req, res) => {

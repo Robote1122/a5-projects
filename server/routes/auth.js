@@ -4,10 +4,15 @@
  */
 
 const router = require('express').Router();
-const bcrypt = require('bcrypt');
-const pool = require('../db');
-const { generateToken } = require('../services/jwtService');
-const { authenticate, requireRole } = require('../middleware/auth');
+const { generateToken } = require('@latanda/auth-middleware/jwt');
+const { requireRole } = require('@latanda/auth-middleware/rbac');
+const { 
+    findUserByEmail, 
+    createUser, 
+    verifyPassword, 
+    updateLastLogin 
+} = require('../services/userService');
+const { authenticate } = require('../middleware/auth');
 
 /* ─── POST /api/auth/register ──────────────────────────── */
 // Только для администраторов
@@ -15,7 +20,6 @@ router.post('/register', authenticate, requireRole('ADMIN'), async (req, res) =>
     try {
         const { email, password, full_name, role = 'USER' } = req.body;
         
-        // Валидация
         if (!email || !password) {
             return res.status(400).json({
                 success: false,
@@ -31,33 +35,20 @@ router.post('/register', authenticate, requireRole('ADMIN'), async (req, res) =>
         }
         
         // Проверяем, существует ли пользователь
-        const existing = await pool.query(
-            'SELECT id FROM users WHERE email = $1',
-            [email.toLowerCase()]
-        );
-        
-        if (existing.rows.length > 0) {
+        const existing = await findUserByEmail(email);
+        if (existing) {
             return res.status(400).json({
                 success: false,
                 error: 'Пользователь с таким email уже существует'
             });
         }
         
-        // Хешируем пароль
-        const saltRounds = 12;
-        const password_hash = await bcrypt.hash(password, saltRounds);
-        
         // Создаём пользователя
-        const result = await pool.query(
-            `INSERT INTO users (email, password_hash, full_name, role) 
-             VALUES ($1, $2, $3, $4) 
-             RETURNING id, email, full_name, role, created_at`,
-            [email.toLowerCase(), password_hash, full_name || null, role]
-        );
+        const user = await createUser(email, password, full_name, role);
         
         res.status(201).json({
             success: true,
-            data: result.rows[0]
+            data: user
         });
         
     } catch (err) {
@@ -79,20 +70,13 @@ router.post('/login', async (req, res) => {
         }
         
         // Ищем пользователя
-        const result = await pool.query(
-            `SELECT id, email, password_hash, full_name, role, is_active 
-             FROM users WHERE email = $1`,
-            [email.toLowerCase()]
-        );
-        
-        if (result.rows.length === 0) {
+        const user = await findUserByEmail(email);
+        if (!user) {
             return res.status(401).json({
                 success: false,
                 error: 'Неверный email или пароль'
             });
         }
-        
-        const user = result.rows[0];
         
         // Проверяем, активен ли пользователь
         if (!user.is_active) {
@@ -103,7 +87,7 @@ router.post('/login', async (req, res) => {
         }
         
         // Проверяем пароль
-        const isValid = await bcrypt.compare(password, user.password_hash);
+        const isValid = await verifyPassword(user, password);
         if (!isValid) {
             return res.status(401).json({
                 success: false,
@@ -112,29 +96,30 @@ router.post('/login', async (req, res) => {
         }
         
         // Обновляем last_login
-        await pool.query(
-            'UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = $1',
-            [user.id]
-        );
+        await updateLastLogin(user.id);
         
-        // Генерируем JWT
-        const token = generateToken(user);
+        // Генерируем JWT через пакет
+        const token = generateToken({
+            id: user.id,
+            email: user.email,
+            role: user.role,
+        });
         
         // Устанавливаем httpOnly cookie
         res.cookie('token', token, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'strict',
-            maxAge: 7 * 24 * 60 * 60 * 1000, // 7 дней
+            maxAge: 7 * 24 * 60 * 60 * 1000,
         });
         
-        // Возвращаем данные пользователя (без пароля)
+        // Возвращаем данные пользователя
         const { password_hash, ...userData } = user;
         res.json({
             success: true,
             data: {
                 user: userData,
-                token: token // для клиентов, которые не используют cookies
+                token: token
             }
         });
         
@@ -164,6 +149,7 @@ router.get('/me', authenticate, (req, res) => {
 // Только для администраторов
 router.get('/users', authenticate, requireRole('ADMIN'), async (req, res) => {
     try {
+        const pool = require('../db');
         const result = await pool.query(
             `SELECT id, email, full_name, role, created_at, last_login, is_active 
              FROM users 
@@ -191,7 +177,6 @@ router.patch('/users/:id/role', authenticate, requireRole('ADMIN'), async (req, 
             });
         }
         
-        // Не даём изменить свою роль
         if (userId === req.user.id) {
             return res.status(403).json({
                 success: false,
@@ -199,6 +184,7 @@ router.patch('/users/:id/role', authenticate, requireRole('ADMIN'), async (req, 
             });
         }
         
+        const pool = require('../db');
         const result = await pool.query(
             `UPDATE users SET role = $1, updated_at = CURRENT_TIMESTAMP 
              WHERE id = $2 
