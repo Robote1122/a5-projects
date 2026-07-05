@@ -1,18 +1,23 @@
 {
-  "name": "vzmakh-chat-server",
+  "name": "chat-server",
   "version": "1.0.0",
-  "description": "Backend for Vzmakh Chat App — Node.js + Express + SQLite (node:sqlite built-in)",
+  "description": "Backend for Chat App",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "init-db": "node scripts/init-db.js"
+    "migrate": "node scripts/migrate.js",
+    "migrate:up": "node scripts/migrate.js up",
+    "migrate:status": "node scripts/migrate.js status"
   },
   "dependencies": {
+    "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.18.3",
-    "express-fileupload": "^1.4.0"
+    "express-fileupload": "^1.4.0",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.11.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"

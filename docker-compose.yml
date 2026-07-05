@@ -1,28 +1,31 @@
 version: '3.8'
-# MDE5ZjFlZDUtMGQyYS03MDY2LThkMDgtZmY2MGMwNGNlODU5OjA0OTBlNGYzLTk0OGEtNDIzMS1iZWFhLTQzNWYxNzZjOTg4Yw==
+
 services:
-  # Node.js бэкенд + React фронтенд
-  backend:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: vzmakh-chat-backend
-    ports:
-      - "127.0.0.1:8001:8001"  # Только локально, не наружу
+  # ============================================
+  # POSTGRESQL БАЗА ДАННЫХ
+  # ============================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: chat-postgres
     environment:
-      - GIGACHAT_AUTH_DATA=MDE5ZjFlZDUtMGQyYS03MDY2LThkMDgtZmY2MGMwNGNlODU5OjA0OTBlNGYzLTk0OGEtNDIzMS1iZWFhLTQzNWYxNzZjOTg4Yw
-      - NODE_ENV=production
-      - PORT=8001
-      - AI_ENABLED=true
-      - AI_SERVICE_URL=http://ai-service:8002
-      - DB_PATH=/app/server/data/chat.db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=ru_RU.UTF-8"
     volumes:
-      - ./server/data:/app/server/data
-      - ./logs:/app/logs
-    depends_on:
-      - ai-service
+      # Данные PostgreSQL сохраняются в Docker volume (не на хосте)
+      - postgres_data:/var/lib/postgresql/data
+      # Скрипты инициализации
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${POSTGRES_PORT}:5432"
     networks:
-      - vzmakh-network
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
     logging:
       driver: "json-file"
@@ -30,23 +33,75 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # Python AI сервис
+  # ============================================
+  # NODE.JS БЭКЕНД
+  # ============================================
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: chat-backend
+    ports:
+      - "127.0.0.1:${PORT}:${PORT}"
+    environment:
+      - NODE_ENV=${NODE_ENV}
+      - PORT=${PORT}
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DATABASE=${POSTGRES_DB}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN}
+      - AI_ENABLED=${AI_ENABLED}
+      - AI_SERVICE_URL=${AI_SERVICE_URL}
+      # Путь к SQLite (если используется)
+      - DB_PATH=${DB_PATH}
+    volumes:
+      # Монтируем папку с данными на хосте в /app/data внутри контейнера
+      - ./server/data:/app/data
+      # Монтируем логи
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ai-service:
+        condition: service_started
+    networks:
+      - app-network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # PYTHON AI СЕРВИС
+  # ============================================
   ai-service:
     build:
       context: ./ai-service
       dockerfile: Dockerfile
-    container_name: vzmakh-chat-ai
+    container_name: chat-ai
     ports:
-      - "127.0.0.1:8002:8002"  # Только локально
+      - "127.0.0.1:8002:8002"
     environment:
       - PORT=8002
       - GIGACHAT_AUTH_DATA=${GIGACHAT_AUTH_DATA}
-      - GIGACHAT_MODEL=${GIGACHAT_MODEL:-Embeddings}
-      - DB_PATH=/app/data/safety_checklist_db
+      - GIGACHAT_MODEL=${GIGACHAT_MODEL}
+      - GIGACHAT_CHAT_MODEL=${GIGACHAT_CHAT_MODEL}
+      # Пути внутри контейнера
+      - DB_PATH=${AI_DB_PATH}
+      - PROMPT_START_PATH=${PROMPT_START_PATH}
+      - PROMPT_CONTINUE_PATH=${PROMPT_CONTINUE_PATH}
     volumes:
+      # Монтируем папку с данными ChromaDB на хосте в /app/data внутри контейнера
       - ./ai-service/data:/app/data
+      # Монтируем папку с промптами на хосте в /app/prompts внутри контейнера
+      - ./ai-service/prompts:/app/prompts
     networks:
-      - vzmakh-network
+      - app-network
     restart: unless-stopped
     logging:
       driver: "json-file"
@@ -54,6 +109,17 @@ services:
         max-size: "10m"
         max-file: "3"
 
+# ============================================
+# VOLUMES
+# ============================================
+volumes:
+  # PostgreSQL данные хранятся в Docker volume
+  postgres_data:
+    driver: local
+
+# ============================================
+# NETWORKS
+# ============================================
 networks:
-  vzmakh-network:
+  app-network:
     driver: bridge
