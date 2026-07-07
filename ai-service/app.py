@@ -1,3 +1,4 @@
+# ai-service/app.py
 from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -6,47 +7,70 @@ from pathlib import Path
 import shutil
 import json
 import os
-from rag_engine import RAGEngine
+import logging
 
-app = FastAPI()
+from rag_engine import RAGEngine
+from routers import documents
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="Vzmakh Chat AI Service")
+
+# Подключаем роутеры
+app.include_router(documents.router)
+
+# Инициализация RAG
 rag = RAGEngine()
 
 
+# Модели данных
 class ChatRequest(BaseModel):
     chat_id: str
     message: str
-    history: list = []  # последние N сообщений для контекста
+    history: list = []
+
 
 class CheckLimitRequest(BaseModel):
     user_id: str
 
-# Модель для обновления промпта
+
 class PromptUpdateRequest(BaseModel):
-    prompt_type: str  # "start" или "continue"
+    prompt_type: str
     content: str
 
-# Эндпоинт для проверки лимитов
+
+# Эндпоинты
 @app.post("/api/ai/check-limit")
 async def check_limit(request: CheckLimitRequest):
-    # Пока всегда True, но структура готова для будущих лимитов
     return {
         "allowed": True,
-        "remaining": 100,  # для будущего использования
+        "remaining": 100,
         "reset_at": None
     }
 
-# Эндпоинт для генерации ответа (со стримингом)
+
 @app.post("/api/ai/chat")
 async def chat(request: ChatRequest):
     try:
         # Получаем контекст из векторной БД
         context = rag.search(request.message, n_results=3)
         
+        # Форматируем контекст с источниками
+        context_with_sources = []
+        for item in context:
+            context_with_sources.append({
+                "content": item["content"],
+                "source": item.get("source", "Неизвестный источник"),
+                "relevance": item.get("relevance", 0)
+            })
+        
         # Генерируем ответ со стримингом
         async def generate():
             async for chunk in rag.generate_response(
                 query=request.message,
-                context=context,
+                context=context_with_sources,
                 history=request.history
             ):
                 yield f"data: {json.dumps({'content': chunk, 'done': False}, ensure_ascii=False)}\n\n"
@@ -56,14 +80,10 @@ async def chat(request: ChatRequest):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    
-# Эндпоинт для получения текущего промпта
+
+
 @app.get("/api/ai/prompt/{prompt_type}")
 async def get_prompt(prompt_type: str):
-    """
-    Получить содержимое prompt-файла
-    prompt_type: start или continue
-    """
     if prompt_type not in ["start", "continue"]:
         raise HTTPException(status_code=400, detail="prompt_type должен быть 'start' или 'continue'")
     
@@ -81,24 +101,18 @@ async def get_prompt(prompt_type: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Эндпоинт для обновления промпта через текст
+
 @app.post("/api/ai/prompt/{prompt_type}")
 async def update_prompt_text(prompt_type: str, request: PromptUpdateRequest):
-    """
-    Обновить содержимое prompt-файла через текст
-    """
     if prompt_type not in ["start", "continue"]:
         raise HTTPException(status_code=400, detail="prompt_type должен быть 'start' или 'continue'")
     
     try:
         file_path = rag.prompt_start_path if prompt_type == "start" else rag.prompt_continue_path
-        
-        # Создаем бэкап
         backup_path = f"{file_path}.backup"
         if os.path.exists(file_path):
             shutil.copy2(file_path, backup_path)
         
-        # Записываем новый контент
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(request.content)
         
@@ -111,15 +125,9 @@ async def update_prompt_text(prompt_type: str, request: PromptUpdateRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Эндпоинт для загрузки файла промпта
+
 @app.post("/api/ai/prompt/{prompt_type}/upload")
-async def upload_prompt_file(
-    prompt_type: str,
-    file: UploadFile = File(...)
-):
-    """
-    Загрузить новый файл промпта (.txt)
-    """
+async def upload_prompt_file(prompt_type: str, file: UploadFile = File(...)):
     if prompt_type not in ["start", "continue"]:
         raise HTTPException(status_code=400, detail="prompt_type должен быть 'start' или 'continue'")
     
@@ -128,13 +136,10 @@ async def upload_prompt_file(
     
     try:
         file_path = rag.prompt_start_path if prompt_type == "start" else rag.prompt_continue_path
-        
-        # Создаем бэкап
         backup_path = f"{file_path}.backup"
         if os.path.exists(file_path):
             shutil.copy2(file_path, backup_path)
         
-        # Сохраняем новый файл
         content = await file.read()
         with open(file_path, 'wb') as f:
             f.write(content)
@@ -149,12 +154,9 @@ async def upload_prompt_file(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Эндпоинт для восстановления бэкапа
+
 @app.post("/api/ai/prompt/{prompt_type}/restore")
 async def restore_prompt_backup(prompt_type: str):
-    """
-    Восстановить промпт из бэкапа
-    """
     if prompt_type not in ["start", "continue"]:
         raise HTTPException(status_code=400, detail="prompt_type должен быть 'start' или 'continue'")
     
@@ -174,10 +176,17 @@ async def restore_prompt_backup(prompt_type: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Health check
+
 @app.get("/api/ai/health")
 async def health():
-    return {"status": "ok", "db_count": rag.get_collection_count()}
+    from services.document_storage import DocumentStorage
+    doc_storage = DocumentStorage()
+    return {
+        "status": "ok",
+        "db_count": rag.get_collection_count(),
+        "total_sources": len(doc_storage.get_all_sources())
+    }
+
 
 if __name__ == "__main__":
     import uvicorn

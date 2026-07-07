@@ -1,3 +1,4 @@
+# ai/requirements.txt
 fastapi==0.104.1
 uvicorn==0.24.0
 chromadb==1.5.9
@@ -7,3 +8,9 @@ numpy==1.24.3
 pydantic==2.5.0
 sse-starlette==1.6.5  # для Server-Sent Events
 python-multipart==0.0.32 # Для загрузки файлов через FastAPI
+pdf2image==1.16.3
+pdfplumber==0.10.3
+Pillow==10.1.0
+aiofiles==23.2.1
+httpx
+openai
