@@ -4,63 +4,74 @@ const path = require('path');
 const fs = require('fs-extra');
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads/pdfs';
-
-// Убедимся, что директория существует
 fs.ensureDirSync(UPLOAD_DIR);
 
-// Настройка хранилища multer (временное хранилище)
+// ⭐ Функция для детального логирования строк
+function logStringDetails(label, str, prefix = '') {
+    if (!str) {
+        console.log(`${prefix}${label}: (пустая строка)`);
+        return;
+    }
+    
+    console.log(`${prefix}${label}: "${str}"`);
+    console.log(`${prefix}  Длина: ${str.length}`);
+    console.log(`${prefix}  Коды символов:`, Array.from(str).map(c => c.charCodeAt(0)));
+    console.log(`${prefix}  Байты (UTF-8):`, Array.from(new TextEncoder().encode(str)));
+    
+    // Пробуем интерпретировать как разные кодировки
+    try {
+        const latin1 = Buffer.from(str, 'latin1').toString('utf8');
+        console.log(`${prefix}  Как Latin-1 → UTF-8: "${latin1}"`);
+    } catch (e) {}
+    
+    try {
+        const win1251 = new TextDecoder('windows-1251').decode(new TextEncoder().encode(str));
+        console.log(`${prefix}  Как Windows-1251: "${win1251}"`);
+    } catch (e) {}
+}
+
+// Настройка хранилища multer
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
+        console.log('📂 [MULTER] Сохраняем файл в:', UPLOAD_DIR);
         cb(null, UPLOAD_DIR);
     },
     filename: (req, file, cb) => {
-        // ⭐ КОРРЕКТНАЯ ОБРАБОТКА UTF-8
-        // 1. Декодируем имя из Latin-1 в UTF-8
-        let originalName = file.originalname;
+        console.log('📄 [MULTER] Обработка имени файла');
+        console.log('📄 [MULTER] Заголовки запроса:', req.headers);
+        console.log('📄 [MULTER] Content-Type:', req.headers['content-type']);
         
-        // Пробуем разные способы декодирования
-        try {
-            // Способ 1: Если имя пришло как Latin-1
-            originalName = Buffer.from(originalName, 'latin1').toString('utf8');
-        } catch (e) {
-            // Способ 2: Пробуем просто как UTF-8
-            try {
-                originalName = decodeURIComponent(escape(originalName));
-            } catch (e2) {
-                // Оставляем как есть
-            }
-        }
+        logStringDetails('originalname от multer', file.originalname, '  ');
         
-        // Сохраняем правильное имя в req для дальнейшего использования
-        req.fileOriginalName = originalName;
+        // Сохраняем оригинальное имя в req
+        req.fileOriginalName = file.originalname;
         
-        // Генерируем уникальное имя для файла на диске
+        // Генерируем имя для файловой системы
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        const ext = path.extname(originalName);
-        const baseName = path.basename(originalName, ext);
-        // Очищаем имя от недопустимых символов для файловой системы
-        const safeName = baseName.replace(/[^a-zA-Zа-яА-Я0-9-_]/g, '_');
-        cb(null, `${safeName}-${uniqueSuffix}${ext}`);
+        const ext = path.extname(file.originalname);
+        const safeName = `file-${uniqueSuffix}${ext}`;
+        
+        console.log('📄 [MULTER] Имя на диске:', safeName);
+        cb(null, safeName);
     }
 });
 
-
-// Фильтр файлов - только PDF
+// Фильтр файлов
 const fileFilter = (req, file, cb) => {
-    // ⭐ Нормализуем имя файла
-    let originalName = file.originalname;
-    try {
-        originalName = Buffer.from(originalName, 'latin1').toString('utf8');
-    } catch (e) {}
+    console.log('🔍 [MULTER] Фильтр файлов');
+    logStringDetails('Имя файла', file.originalname, '  ');
+    console.log('🔍 [MULTER] MIME тип:', file.mimetype);
     
-    const ext = path.extname(originalName).toLowerCase();
+    const ext = path.extname(file.originalname).toLowerCase();
     const mimeType = file.mimetype;
     
     if (mimeType === 'application/pdf' || 
         mimeType === 'application/x-pdf' ||
         ext === '.pdf') {
+        console.log('✅ [MULTER] Файл разрешён');
         cb(null, true);
     } else {
+        console.log('❌ [MULTER] Файл запрещён');
         cb(new Error('Только PDF файлы разрешены'), false);
     }
 };
@@ -70,42 +81,39 @@ const upload = multer({
     storage: storage,
     fileFilter: fileFilter,
     limits: {
-        fileSize: 50 * 1024 * 1024, // 50 MB
-        files: 20 // максимум 20 файлов
+        fileSize: 50 * 1024 * 1024,
+        files: 20,
+        fieldSize: 10 * 1024 * 1024
     }
 });
 
-// Middleware для обработки ошибок multer
+// Обработка ошибок
 const handleMulterError = (err, req, res, next) => {
+    console.error('❌ [MULTER] Ошибка:', err);
+    
     if (err instanceof multer.MulterError) {
-        if (err.code === 'FILE_TOO_LARGE') {
-            return res.status(413).json({
-                success: false,
-                error: 'Файл слишком большой. Максимальный размер: 50MB'
-            });
-        }
-        if (err.code === 'LIMIT_FILE_COUNT') {
-            return res.status(400).json({
-                success: false,
-                error: 'Слишком много файлов. Максимум: 20'
-            });
-        }
-        if (err.code === 'LIMIT_UNEXPECTED_FILE') {
-            return res.status(400).json({
-                success: false,
-                error: 'Неожиданное поле. Убедитесь, что поле называется "files"'
-            });
-        }
+        console.error('❌ [MULTER] Код ошибки:', err.code);
+        console.error('❌ [MULTER] Сообщение:', err.message);
+        console.error('❌ [MULTER] Поле:', err.field);
+        
+        const errors = {
+            'FILE_TOO_LARGE': 'Файл слишком большой. Максимальный размер: 50MB',
+            'LIMIT_FILE_COUNT': 'Слишком много файлов. Максимум: 20',
+            'LIMIT_UNEXPECTED_FILE': `Неожиданное поле "${err.field}". Убедитесь, что поле называется "files"`,
+            'LIMIT_FILE_SIZE': 'Файл слишком большой. Максимальный размер: 50MB',
+            'LIMIT_FIELD_SIZE': 'Слишком большое поле. Уменьшите размер данных'
+        };
+        
         return res.status(400).json({
             success: false,
-            error: `Ошибка загрузки: ${err.message}`
+            error: errors[err.code] || `Ошибка загрузки: ${err.message}`
         });
     }
     
     if (err) {
         return res.status(400).json({
             success: false,
-            error: err.message
+            error: err.message || 'Ошибка загрузки файла'
         });
     }
     

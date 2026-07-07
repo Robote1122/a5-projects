@@ -28,6 +28,14 @@ async def process_document(
 ):
     """Обработка загруженного PDF документа"""
     # Корректно декодируем имя в UTF-8
+    """Обработка загруженного PDF документа"""
+    logger.info("=" * 60)
+    logger.info("📥 [AI] ===== POST /api/ai/documents/process =====")
+    logger.info(f"📥 [AI] document_id: {document_id}")
+    logger.info(f"📥 [AI] custom_name (raw): '{custom_name}'")
+    logger.info(f"📥 [AI] file.filename: '{file.filename}'")
+    logger.info(f"📥 [AI] file.content_type: {file.content_type}")
+
     try:
         decoded_name = custom_name.encode('latin-1').decode('utf-8')
     except:

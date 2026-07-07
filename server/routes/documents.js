@@ -4,6 +4,17 @@ const { authenticate, requireRole } = require('../middleware/auth');
 const { upload, handleMulterError } = require('../middleware/upload');
 const documentService = require('../services/documentService');
 
+function logStringDetails(label, str, prefix = '') {
+    if (!str) {
+        console.log(`${prefix}${label}: (пустая строка)`);
+        return;
+    }
+    console.log(`${prefix}${label}: "${str}"`);
+    console.log(`${prefix}  Длина: ${str.length}`);
+    console.log(`${prefix}  Коды символов:`, Array.from(str).map(c => c.charCodeAt(0)));
+    console.log(`${prefix}  Байты (UTF-8):`, Array.from(new TextEncoder().encode(str)));
+}
+
 // Все роуты требуют аутентификации и прав администратора
 router.use(authenticate);
 router.use(requireRole('ADMIN'));
@@ -20,82 +31,101 @@ router.post('/upload',
     upload.array('files', 20),
     handleMulterError,
     async (req, res) => {
+        console.log('\n📤 [ROUTER] ===== POST /api/documents/upload =====');
+        console.log('📤 [ROUTER] User ID:', req.user.id);
+        console.log('📤 [ROUTER] Количество файлов:', req.files?.length || 0);
+        console.log('📤 [ROUTER] Body:', req.body);
+        console.log('📤 [ROUTER] Headers:', req.headers);
+        
         try {
-            console.log('[Documents] Upload request:', {
-                files: req.files?.length || 0,
-                userId: req.user.id,
-            });
-            
             if (!req.files || req.files.length === 0) {
+                console.log('❌ [ROUTER] Нет файлов');
                 return res.status(400).json({
                     success: false,
                     error: 'Файлы не выбраны'
                 });
             }
             
-            // ⭐ Парсим custom_names с поддержкой UTF-8
+            // ⭐ Логируем каждый файл
+            req.files.forEach((file, index) => {
+                console.log(`\n📄 [ROUTER] Файл #${index + 1}:`);
+                console.log(`  originalname: "${file.originalname}"`);
+                console.log(`  filename: "${file.filename}"`);
+                console.log(`  path: "${file.path}"`);
+                console.log(`  size: ${file.size} байт`);
+                console.log(`  mimetype: "${file.mimetype}"`);
+                
+                logStringDetails('  originalname (детально)', file.originalname);
+                logStringDetails('  filename (детально)', file.filename);
+            });
+            
+            // ⭐ Парсим custom_names
             let customNames = {};
             try {
                 if (req.body.custom_names) {
+                    console.log('📤 [ROUTER] custom_names raw:', req.body.custom_names);
+                    logStringDetails('custom_names raw', req.body.custom_names);
+                    
                     let raw = req.body.custom_names;
                     if (typeof raw === 'string') {
-                        // ⭐ Декодируем JSON строку с правильной кодировкой
-                        try {
-                            // Пробуем декодировать как UTF-8
-                            raw = decodeURIComponent(escape(raw));
-                        } catch (e) {}
+                        console.log('📤 [ROUTER] Парсим JSON:', raw);
                         customNames = JSON.parse(raw);
                     } else {
                         customNames = raw;
                     }
+                    console.log('📤 [ROUTER] customNames после парсинга:', customNames);
                 }
             } catch (e) {
-                console.warn('[Documents] Ошибка парсинга custom_names:', e);
+                console.error('❌ [ROUTER] Ошибка парсинга custom_names:', e);
                 customNames = {};
             }
             
-            // ⭐ Нормализуем имена файлов
-            const normalizedFiles = req.files.map((file, index) => {
-                // Получаем правильное имя
-                let originalName = req.fileOriginalName || file.originalname;
+            // ⭐ Подготавливаем файлы
+            const preparedFiles = req.files.map((file) => {
+                const originalName = file.originalname;
+                const customName = customNames[originalName] || 
+                                  originalName.replace(/\.[^/.]+$/, '');
                 
-                // Пробуем декодировать
-                try {
-                    originalName = Buffer.from(originalName, 'latin1').toString('utf8');
-                } catch (e) {
-                    try {
-                        originalName = decodeURIComponent(escape(originalName));
-                    } catch (e2) {}
-                }
+                console.log(`\n📄 [ROUTER] Подготовка файла: "${originalName}"`);
+                console.log(`  customName: "${customName}"`);
+                logStringDetails('  customName (детально)', customName);
                 
-                // Создаём копию файла с правильным именем
                 return {
                     ...file,
-                    originalname: originalName,
-                    // Если есть custom_name для этого файла, используем его
-                    customName: customNames[file.originalname] || customNames[originalName] || null
+                    originalName: originalName,
+                    customName: customName,
+                    path: file.path
                 };
             });
             
-            // ⭐ Загружаем документы с нормализованными именами
+            // ⭐ Загружаем документы
+            console.log('📤 [ROUTER] Вызов documentService.uploadDocuments');
             const results = await documentService.uploadDocuments(
-                normalizedFiles,
+                preparedFiles,
                 req.user.id
             );
+            console.log('📥 [ROUTER] Результат загрузки:', results);
             
             // Очищаем временные файлы
             for (const file of req.files) {
                 try {
                     if (await fs.pathExists(file.path)) {
                         await fs.remove(file.path);
+                        console.log(`🗑️ [ROUTER] Удалён временный файл: ${file.path}`);
                     }
                 } catch (e) {
-                    // Игнорируем ошибки удаления
+                    console.warn(`⚠️ [ROUTER] Не удалось удалить ${file.path}:`, e);
                 }
             }
             
             const successCount = results.filter(r => r.id).length;
             const errorCount = results.filter(r => r.error).length;
+            
+            console.log('📊 [ROUTER] Итог:', {
+                total: results.length,
+                success: successCount,
+                errors: errorCount
+            });
             
             res.status(201).json({
                 success: true,
@@ -110,7 +140,8 @@ router.post('/upload',
             });
             
         } catch (error) {
-            console.error('[Documents] Upload error:', error);
+            console.error('❌ [ROUTER] Ошибка:', error);
+            console.error('❌ [ROUTER] Stack:', error.stack);
             res.status(500).json({
                 success: false,
                 error: error.message || 'Ошибка загрузки документов'
