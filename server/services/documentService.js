@@ -14,27 +14,30 @@ fs.ensureDirSync(UPLOAD_DIR);
 
 class DocumentService {
     /**
-     * Загрузка документов
+     * Загрузка документов с правильной обработкой UTF-8
      */
-    async uploadDocuments(files, customNames, userId) {
+    async uploadDocuments(files, userId) {
         const results = [];
         
         for (const file of files) {
             try {
-                // 1. Генерируем уникальное имя для файла
+                // ⭐ Используем нормализованное имя
+                const originalName = file.originalname || file.originalname;
+                const customName = file.customName || 
+                                  originalName.replace(/\.[^/.]+$/, '');
+                
+                console.log(`📄 Загрузка: "${originalName}" -> "${customName}"`);
+                
+                // Генерируем уникальное имя для файла
                 const uniqueId = uuidv4();
-                const fileExt = path.extname(file.originalname);
+                const fileExt = path.extname(originalName);
                 const uniqueFilename = `${uniqueId}${fileExt}`;
                 const filePath = path.join(UPLOAD_DIR, uniqueFilename);
                 
-                // 2. Сохраняем файл
+                // Сохраняем файл
                 await fs.move(file.path, filePath, { overwrite: true });
                 
-                // 3. Получаем custom_name
-                const customName = customNames[file.originalname] || 
-                                  file.originalname.replace(/\.[^/.]+$/, '');
-                
-                // 4. Создаём запись в БД
+                // Создаём запись в БД
                 const docId = uuidv4();
                 const query = `
                     INSERT INTO documents (
@@ -47,15 +50,15 @@ class DocumentService {
                 const result = await pool.query(query, [
                     docId,
                     userId,
-                    file.originalname,
-                    customName,
+                    originalName,  // ⭐ Сохраняем правильное имя
+                    customName,    // ⭐ Сохраняем правильное имя
                     filePath,
                     file.size
                 ]);
                 
                 const doc = result.rows[0];
                 
-                // 5. Отправляем на обработку в AI-сервис (асинхронно)
+                // Отправляем на обработку
                 this.processDocumentAsync(docId, filePath, customName, userId);
                 
                 results.push({
@@ -69,7 +72,7 @@ class DocumentService {
             } catch (error) {
                 console.error(`[DocumentService] Ошибка загрузки ${file.originalname}:`, error);
                 results.push({
-                    original_name: file.originalname,
+                    original_name: file.originalname || 'unknown',
                     error: error.message,
                     status: 'error'
                 });
@@ -93,8 +96,11 @@ class DocumentService {
             // Отправляем запрос в AI-сервис
             const formData = new FormData();
             formData.append('document_id', docId);
-            formData.append('custom_name', customName);
+            // Кодируем имя в UTF-8
+            const encodedName = Buffer.from(customName, 'utf8').toString('utf8');
+            formData.append('custom_name', encodedName);
             formData.append('file', fs.createReadStream(filePath));
+            
             
             const response = await axios.post(
                 `${AI_SERVICE_URL}/api/ai/documents/process`,
@@ -102,7 +108,8 @@ class DocumentService {
                 {
                     headers: {
                         ...formData.getHeaders(),
-                        'X-User-Id': userId
+                        'X-User-Id': userId,
+                        'Accept-Charset': 'utf-8',
                     },
                     timeout: 300000 // 5 минут
                 }

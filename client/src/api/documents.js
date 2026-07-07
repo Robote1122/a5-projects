@@ -14,10 +14,14 @@ export const documentsApi = {
     uploadFiles: async (files, customNames) => {
         const formData = new FormData();
         
+        // ⭐ Добавляем файлы
         files.forEach(file => {
+            // Просто добавляем файл с его оригинальным именем
             formData.append('files', file);
         });
         
+        // ⭐ Отправляем custom_names как JSON строку (НЕ как Blob!)
+        // Multer ожидает обычное поле, а не файл
         formData.append('custom_names', JSON.stringify(customNames));
         
         const response = await axios.post(`${BASE}/upload`, formData, {

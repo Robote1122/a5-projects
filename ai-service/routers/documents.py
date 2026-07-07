@@ -27,6 +27,12 @@ async def process_document(
     file: UploadFile = File(...)
 ):
     """Обработка загруженного PDF документа"""
+    # Корректно декодируем имя в UTF-8
+    try:
+        decoded_name = custom_name.encode('latin-1').decode('utf-8')
+    except:
+        decoded_name = custom_name
+    custom_name=decoded_name
     logger.info(f"📥 Получен запрос на обработку: {custom_name} (ID: {document_id})")
     
     temp_file_path = os.path.join(TEMP_DIR, f"{document_id}.pdf")

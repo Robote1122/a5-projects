@@ -14,17 +14,51 @@ const storage = multer.diskStorage({
         cb(null, UPLOAD_DIR);
     },
     filename: (req, file, cb) => {
-        // Временное имя, позже будет заменено на UUID
+        // ⭐ КОРРЕКТНАЯ ОБРАБОТКА UTF-8
+        // 1. Декодируем имя из Latin-1 в UTF-8
+        let originalName = file.originalname;
+        
+        // Пробуем разные способы декодирования
+        try {
+            // Способ 1: Если имя пришло как Latin-1
+            originalName = Buffer.from(originalName, 'latin1').toString('utf8');
+        } catch (e) {
+            // Способ 2: Пробуем просто как UTF-8
+            try {
+                originalName = decodeURIComponent(escape(originalName));
+            } catch (e2) {
+                // Оставляем как есть
+            }
+        }
+        
+        // Сохраняем правильное имя в req для дальнейшего использования
+        req.fileOriginalName = originalName;
+        
+        // Генерируем уникальное имя для файла на диске
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, `temp-${uniqueSuffix}-${file.originalname}`);
+        const ext = path.extname(originalName);
+        const baseName = path.basename(originalName, ext);
+        // Очищаем имя от недопустимых символов для файловой системы
+        const safeName = baseName.replace(/[^a-zA-Zа-яА-Я0-9-_]/g, '_');
+        cb(null, `${safeName}-${uniqueSuffix}${ext}`);
     }
 });
 
+
 // Фильтр файлов - только PDF
 const fileFilter = (req, file, cb) => {
-    if (file.mimetype === 'application/pdf' || 
-        file.mimetype === 'application/x-pdf' ||
-        path.extname(file.originalname).toLowerCase() === '.pdf') {
+    // ⭐ Нормализуем имя файла
+    let originalName = file.originalname;
+    try {
+        originalName = Buffer.from(originalName, 'latin1').toString('utf8');
+    } catch (e) {}
+    
+    const ext = path.extname(originalName).toLowerCase();
+    const mimeType = file.mimetype;
+    
+    if (mimeType === 'application/pdf' || 
+        mimeType === 'application/x-pdf' ||
+        ext === '.pdf') {
         cb(null, true);
     } else {
         cb(new Error('Только PDF файлы разрешены'), false);

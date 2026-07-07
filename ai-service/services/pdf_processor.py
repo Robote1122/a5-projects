@@ -33,7 +33,7 @@ class PDFProcessor:
         self.chunk_size = int(os.getenv("CHUNK_SIZE", 500))
         self.chunk_overlap = int(os.getenv("CHUNK_OVERLAP", 100))
         
-        # Инициализация RouterAI клиента (совместим с OpenAI)
+        # Инициализация RouterAI клиента
         logger.info("🔗 Подключение к RouterAI Vision API...")
         if not self.routerai_api_key:
             raise ValueError("ROUTERAI_API_KEY не задан в .env")
@@ -43,6 +43,7 @@ class PDFProcessor:
             base_url=self.routerai_base_url
         )
         logger.info(f"✅ RouterAI клиент инициализирован (модель: {self.routerai_model})")
+        logger.info(f"📍 RouterAI Base URL: {self.routerai_base_url}")
         
         # Инициализация GigaChat Pro для структурирования
         logger.info("🔗 Подключение к GigaChat Pro...")
@@ -73,6 +74,65 @@ class PDFProcessor:
             logger.warning(f"⚠️ Промпт не найден: {path}")
             return ""
     
+    def _log_routerai_request(self, prompt: str, image_size: int):
+        """Логирование запроса к RouterAI"""
+        logger.info("=" * 60)
+        logger.info("📤 ЗАПРОС К ROUTERAI")
+        logger.info(f"   Модель: {self.routerai_model}")
+        logger.info(f"   Размер изображения: {image_size} байт")
+        logger.info(f"   Длина промпта: {len(prompt)} символов")
+        logger.info(f"   Промпт (первые 200 символов): {prompt[:200]}...")
+        logger.info("=" * 60)
+    
+    def _log_routerai_response(self, response, page_number: int):
+        """Логирование ответа от RouterAI"""
+        logger.info("=" * 60)
+        logger.info(f"📥 ОТВЕТ ОТ ROUTERAI (страница {page_number})")
+        logger.info(f"   Модель: {response.model}")
+        logger.info(f"   ID: {response.id}")
+        logger.info(f"   Токены входящие: {response.usage.prompt_tokens if hasattr(response, 'usage') else 'N/A'}")
+        logger.info(f"   Токены исходящие: {response.usage.completion_tokens if hasattr(response, 'usage') else 'N/A'}")
+        logger.info(f"   Всего токенов: {response.usage.total_tokens if hasattr(response, 'usage') else 'N/A'}")
+        
+        if response.choices and len(response.choices) > 0:
+            content = response.choices[0].message.content
+            logger.info(f"   Длина ответа: {len(content) if content else 0} символов")
+            logger.info(f"   Содержание (первые 500 символов):\n{content[:500] if content else 'НЕТ ТЕКСТА'}...")
+            if content and len(content) > 500:
+                logger.info(f"   ... (всего {len(content)} символов)")
+        else:
+            logger.warning("   ⚠️ Ответ не содержит choices")
+        logger.info("=" * 60)
+        
+        # Сохраняем полный ответ в файл для отладки
+        try:
+            debug_dir = os.getenv("DEBUG_DIR", "./debug")
+            os.makedirs(debug_dir, exist_ok=True)
+            debug_file = os.path.join(debug_dir, f"routerai_response_page_{page_number}.json")
+            with open(debug_file, 'w', encoding='utf-8') as f:
+                # Сохраняем только сериализуемые данные
+                debug_data = {
+                    "model": response.model,
+                    "id": response.id,
+                    "choices": [
+                        {
+                            "message": {
+                                "content": choice.message.content
+                            }
+                        } for choice in response.choices
+                    ] if response.choices else []
+                }
+                if hasattr(response, 'usage'):
+                    debug_data["usage"] = {
+                        "prompt_tokens": response.usage.prompt_tokens,
+                        "completion_tokens": response.usage.completion_tokens,
+                        "total_tokens": response.usage.total_tokens
+                    }
+                json.dump(debug_data, f, ensure_ascii=False, indent=2)
+            logger.info(f"💾 Полный ответ сохранён в {debug_file}")
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось сохранить отладку: {e}")
+    
     def extract_text_from_pdf(self, pdf_path: str) -> str:
         """Извлечение текста из PDF через RouterAI Vision API (постранично)"""
         logger.info(f"📄 Извлечение текста из {pdf_path} через RouterAI Vision API")
@@ -101,9 +161,13 @@ class PDFProcessor:
                 # Конвертируем страницу в PNG
                 buf = io.BytesIO()
                 page.save(buf, format="PNG")
-                image_base64 = base64.b64encode(buf.getvalue()).decode()
+                image_data = buf.getvalue()
+                image_base64 = base64.b64encode(image_data).decode()
                 
-                # Отправляем запрос в RouterAI (совместим с OpenAI форматом)
+                # Логируем запрос
+                self._log_routerai_request(ocr_prompt, len(image_data))
+                
+                # Отправляем запрос в RouterAI
                 response = self.routerai_client.chat.completions.create(
                     model=self.routerai_model,
                     messages=[
@@ -123,8 +187,12 @@ class PDFProcessor:
                             ]
                         }
                     ],
-                    temperature=0.1
+                    temperature=0.1,
+                    max_tokens=4096  # Добавляем лимит для ответа
                 )
+                
+                # Логируем ответ
+                self._log_routerai_response(response, page_number)
                 
                 page_text = response.choices[0].message.content
                 full_text += f"\n--- Страница {page_number} ---\n{page_text}\n"
@@ -136,6 +204,13 @@ class PDFProcessor:
                 
             except Exception as e:
                 logger.error(f"❌ Ошибка обработки страницы {page_number}: {e}")
+                # Логируем детали ошибки
+                if hasattr(e, 'response'):
+                    try:
+                        error_detail = e.response.json() if hasattr(e.response, 'json') else str(e.response)
+                        logger.error(f"   Детали ошибки: {error_detail}")
+                    except:
+                        pass
                 full_text += f"\n--- Страница {page_number} (ОШИБКА) ---\n[Не удалось извлечь текст: {str(e)}]\n"
             
             page_number += 1
@@ -162,10 +237,24 @@ class PDFProcessor:
         
         prompt = structure_prompt.replace("{text}", text_for_prompt)
         
+        # Логируем запрос к GigaChat
+        logger.info("=" * 60)
+        logger.info("📤 ЗАПРОС К GigaChat Pro (структурирование)")
+        logger.info(f"   Длина текста: {len(text_for_prompt)} символов")
+        logger.info(f"   Промпт (первые 200 символов): {prompt[:200]}...")
+        logger.info("=" * 60)
+        
         for attempt in range(max_retries):
             try:
                 response = self.giga_pro.chat(prompt)
                 content = response.choices[0].message.content
+                
+                # Логируем ответ GigaChat
+                logger.info("=" * 60)
+                logger.info("📥 ОТВЕТ ОТ GigaChat Pro")
+                logger.info(f"   Длина ответа: {len(content)} символов")
+                logger.info(f"   Содержание (первые 500 символов):\n{content[:500]}...")
+                logger.info("=" * 60)
                 
                 # Очищаем ответ от маркеров кода
                 content = content.strip()
@@ -188,6 +277,7 @@ class PDFProcessor:
                 
             except json.JSONDecodeError as e:
                 logger.warning(f"⚠️ Ошибка парсинга JSON (попытка {attempt+1}): {e}")
+                logger.warning(f"   Ответ: {content[:200]}...")
                 if attempt < max_retries - 1:
                     time.sleep(2 ** attempt)
                     continue
@@ -205,6 +295,7 @@ class PDFProcessor:
     
     def _fallback_structure(self, text: str) -> List[Dict[str, Any]]:
         """Fallback-структурирование текста по абзацам"""
+        logger.info("📝 Использую fallback-структурирование по абзацам")
         paragraphs = text.split('\n\n')
         structured = []
         
@@ -220,6 +311,7 @@ class PDFProcessor:
                     "keywords": self._extract_keywords(content)
                 })
         
+        logger.info(f"✅ Fallback: создано {len(structured)} блоков")
         return structured
     
     def _extract_keywords(self, text: str) -> List[str]:
@@ -302,8 +394,17 @@ class PDFProcessor:
     def process_pdf(self, pdf_path: str, custom_name: str, document_id: str) -> Dict[str, Any]:
         """Полный цикл обработки PDF"""
         logger.info(f"🔄 Обработка PDF: {custom_name} (ID: {document_id})")
-        
         try:
+            # ⭐ Декодируем имя, если оно пришло в неправильной кодировке
+            try:
+                # Пробуем декодировать из Latin-1 в UTF-8
+                decoded_name = custom_name.encode('latin-1').decode('utf-8')
+                custom_name = decoded_name
+                logger.info(f"📝 Имя декодировано: {custom_name}")
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                # Уже в UTF-8 или другая кодировка
+                pass
+            
             # 1. Извлечение текста через RouterAI Vision API
             raw_text = self.extract_text_from_pdf(pdf_path)
             
@@ -323,13 +424,18 @@ class PDFProcessor:
             # 5. Подготовка данных для ChromaDB
             documents_data = []
             for chunk, embedding in zip(chunks, embeddings):
+                # ⭐ Убеждаемся, что source сохраняется в UTF-8
+                source_name = custom_name
+                if not isinstance(source_name, str):
+                    source_name = str(source_name)
+                
                 documents_data.append({
                     "id": f"{document_id}_{chunk['chunk_index']}",
                     "text": chunk["text"],
                     "embedding": embedding,
                     "metadata": {
                         "document_id": document_id,
-                        "source": custom_name,
+                        "source": source_name,  # ⭐ UTF-8 имя
                         "title": chunk["title"],
                         "keywords": ", ".join(chunk["keywords"]),
                         "chunk_index": chunk["chunk_index"],
@@ -340,6 +446,8 @@ class PDFProcessor:
             
             # Считаем количество страниц (приблизительно)
             page_count = raw_text.count("--- Страница")
+            
+            logger.info(f"✅ Обработка завершена: {page_count} страниц, {len(chunks)} чанков")
             
             return {
                 "success": True,

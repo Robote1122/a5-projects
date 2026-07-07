@@ -24,7 +24,6 @@ router.post('/upload',
             console.log('[Documents] Upload request:', {
                 files: req.files?.length || 0,
                 userId: req.user.id,
-                body: req.body
             });
             
             if (!req.files || req.files.length === 0) {
@@ -34,35 +33,61 @@ router.post('/upload',
                 });
             }
             
-            // Парсим custom_names
+            // ⭐ Парсим custom_names с поддержкой UTF-8
             let customNames = {};
             try {
                 if (req.body.custom_names) {
-                    customNames = typeof req.body.custom_names === 'string' 
-                        ? JSON.parse(req.body.custom_names) 
-                        : req.body.custom_names;
+                    let raw = req.body.custom_names;
+                    if (typeof raw === 'string') {
+                        // ⭐ Декодируем JSON строку с правильной кодировкой
+                        try {
+                            // Пробуем декодировать как UTF-8
+                            raw = decodeURIComponent(escape(raw));
+                        } catch (e) {}
+                        customNames = JSON.parse(raw);
+                    } else {
+                        customNames = raw;
+                    }
                 }
             } catch (e) {
                 console.warn('[Documents] Ошибка парсинга custom_names:', e);
+                customNames = {};
             }
             
-            // Загружаем документы
+            // ⭐ Нормализуем имена файлов
+            const normalizedFiles = req.files.map((file, index) => {
+                // Получаем правильное имя
+                let originalName = req.fileOriginalName || file.originalname;
+                
+                // Пробуем декодировать
+                try {
+                    originalName = Buffer.from(originalName, 'latin1').toString('utf8');
+                } catch (e) {
+                    try {
+                        originalName = decodeURIComponent(escape(originalName));
+                    } catch (e2) {}
+                }
+                
+                // Создаём копию файла с правильным именем
+                return {
+                    ...file,
+                    originalname: originalName,
+                    // Если есть custom_name для этого файла, используем его
+                    customName: customNames[file.originalname] || customNames[originalName] || null
+                };
+            });
+            
+            // ⭐ Загружаем документы с нормализованными именами
             const results = await documentService.uploadDocuments(
-                req.files,
-                customNames,
+                normalizedFiles,
                 req.user.id
             );
             
-            // Очищаем временные файлы (если они не были перемещены)
+            // Очищаем временные файлы
             for (const file of req.files) {
                 try {
                     if (await fs.pathExists(file.path)) {
-                        // Проверяем, не был ли файл уже перемещён
-                        const stat = await fs.stat(file.path);
-                        // Если файл существует и это временный файл - удаляем
-                        if (file.path.includes('temp-')) {
-                            await fs.remove(file.path);
-                        }
+                        await fs.remove(file.path);
                     }
                 } catch (e) {
                     // Игнорируем ошибки удаления
@@ -93,6 +118,7 @@ router.post('/upload',
         }
     }
 );
+
 
 /**
  * GET /api/documents

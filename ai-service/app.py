@@ -48,8 +48,8 @@ class PromptUpdateRequest(BaseModel):
 def get_prompt_path(prompt_type: str) -> str:
     """Получение пути к файлу промпта по его типу"""
     prompt_paths = {
-        "start": os.getenv("PROMPT_1_PATH", "./prompts/chat_start.txt"),
-        "continue": os.getenv("PROMPT_2_PATH", "./prompts/chat_continue.txt"),
+        "start": os.getenv("PROMPT_1_PATH", "./prompts/prompt_start.txt"),
+        "continue": os.getenv("PROMPT_2_PATH", "./prompts/prompt_continue.txt"),
         "ocr": os.getenv("OCR_PROMPT_PATH", "./prompts/ocr_prompt.txt"),
         "structure": os.getenv("STRUCTURE_PROMPT_PATH", "./prompts/structure_prompt.txt"),
     }

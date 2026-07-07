@@ -78,6 +78,9 @@ services:
     container_name: chat-ai
     restart: unless-stopped
     environment:
+      - LANG=ru_RU.UTF-8
+      - LC_ALL=ru_RU.UTF-8
+      - PYTHONIOENCODING=utf-8
       - PORT=8002
       # GigaChat
       - GIGACHAT_AUTH_DATA=${GIGACHAT_AUTH_DATA}
