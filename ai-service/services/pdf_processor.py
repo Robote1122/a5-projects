@@ -19,16 +19,14 @@ class PDFProcessor:
     
     def __init__(self):
         # Настройки OpenRouter для OCR
-        self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY",'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')
+        self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY", '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')
         self.openrouter_base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
         self.openrouter_model = os.getenv("OPENROUTER_MODEL", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")
         self.dpi = int(os.getenv("OCR_DPI", 200))
         
-        # Загрузка промптов
+        # ПУТИ К ПРОМПТАМ (без загрузки содержимого)
         self.ocr_prompt_path = os.getenv("OCR_PROMPT_PATH", "./prompts/ocr_prompt.txt")
         self.structure_prompt_path = os.getenv("STRUCTURE_PROMPT_PATH", "./prompts/structure_prompt.txt")
-        self.ocr_prompt = self._load_prompt(self.ocr_prompt_path)
-        self.structure_prompt = self._load_prompt(self.structure_prompt_path)
         
         # Настройки GigaChat
         self.gigachat_auth = os.getenv("GIGACHAT_AUTH_DATA")
@@ -67,7 +65,7 @@ class PDFProcessor:
         logger.info("✅ GigaChat Embeddings инициализирован")
     
     def _load_prompt(self, path: str) -> str:
-        """Загрузка промпта из файла"""
+        """Динамическая загрузка промпта из файла при каждом вызове"""
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 return f.read()
@@ -78,6 +76,11 @@ class PDFProcessor:
     def extract_text_from_pdf(self, pdf_path: str) -> str:
         """Извлечение текста из PDF через OpenRouter Vision API (постранично)"""
         logger.info(f"📄 Извлечение текста из {pdf_path} через OpenRouter Vision API")
+        
+        # ДИНАМИЧЕСКАЯ ЗАГРУЗКА OCR ПРОМПТА
+        ocr_prompt = self._load_prompt(self.ocr_prompt_path)
+        if not ocr_prompt:
+            ocr_prompt = "Извлеки весь текст с этой страницы документа. Сохраняй структуру."
         
         # Конвертируем PDF в изображения
         logger.info(f"🖼️ Конвертация PDF в изображения (DPI={self.dpi})...")
@@ -109,7 +112,7 @@ class PDFProcessor:
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": self.ocr_prompt
+                                    "text": ocr_prompt
                                 },
                                 {
                                     "type": "image_url",
@@ -147,12 +150,17 @@ class PDFProcessor:
         """Структурирование текста через GigaChat Pro"""
         logger.info("🧠 Структурирование текста через GigaChat Pro...")
         
+        # ДИНАМИЧЕСКАЯ ЗАГРУЗКА ПРОМПТА СТРУКТУРИРОВАНИЯ
+        structure_prompt = self._load_prompt(self.structure_prompt_path)
+        if not structure_prompt:
+            structure_prompt = "Разбей текст на логические блоки. Верни JSON массив с полями title, content, keywords."
+        
         # Обрезаем текст если слишком длинный
         text_for_prompt = text[:15000]  # Ограничиваем для API
         if len(text) > 15000:
             logger.warning(f"⚠️ Текст обрезан с {len(text)} до 15000 символов")
         
-        prompt = self.structure_prompt.replace("{text}", text_for_prompt)
+        prompt = structure_prompt.replace("{text}", text_for_prompt)
         
         for attempt in range(max_retries):
             try:

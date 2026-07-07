@@ -10,7 +10,6 @@ import ChatWindow from './components/ChatWindow';
 import MessageInput from './components/MessageInput';
 import { useChats } from './hooks/useChats';
 import PromptManager from './components/PromptManager';
-import DocumentManager from './components/DocumentManager';
 
 export default function MainApp() {
     console.log('🏠 [MainApp] Рендер компонента');
@@ -104,7 +103,6 @@ export default function MainApp() {
 
             {/* Менеджеры */}
             <PromptManager />
-            <DocumentManager />
         </div>
     );
 }

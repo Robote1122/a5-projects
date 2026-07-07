@@ -41,7 +41,59 @@ class PromptUpdateRequest(BaseModel):
     content: str
 
 
-# Эндпоинты
+# ============================================
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ РАБОТЫ С ПРОМПТАМИ
+# ============================================
+
+def get_prompt_path(prompt_type: str) -> str:
+    """Получение пути к файлу промпта по его типу"""
+    prompt_paths = {
+        "start": os.getenv("PROMPT_1_PATH", "./prompts/chat_start.txt"),
+        "continue": os.getenv("PROMPT_2_PATH", "./prompts/chat_continue.txt"),
+        "ocr": os.getenv("OCR_PROMPT_PATH", "./prompts/ocr_prompt.txt"),
+        "structure": os.getenv("STRUCTURE_PROMPT_PATH", "./prompts/structure_prompt.txt"),
+    }
+    
+    path = prompt_paths.get(prompt_type)
+    if not path:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Неизвестный тип промпта: {prompt_type}. Доступные: start, continue, ocr, structure"
+        )
+    return path
+
+
+def get_prompt_metadata(prompt_type: str) -> dict:
+    """Получение метаданных промпта"""
+    metadata = {
+        "start": {
+            "display_name": "Начальный промпт (без контекста)",
+            "filename": "chat_start.txt",
+            "description": "Используется, когда нет контекста из базы знаний"
+        },
+        "continue": {
+            "display_name": "Промпт с контекстом",
+            "filename": "chat_continue.txt",
+            "description": "Используется, когда есть контекст из базы знаний"
+        },
+        "ocr": {
+            "display_name": "OCR промпт",
+            "filename": "ocr_prompt.txt",
+            "description": "Используется для извлечения текста из изображений PDF"
+        },
+        "structure": {
+            "display_name": "Промпт структурирования",
+            "filename": "structure_prompt.txt",
+            "description": "Используется для структурирования извлечённого текста"
+        }
+    }
+    return metadata.get(prompt_type, {})
+
+
+# ============================================
+# ЭНДПОИНТЫ
+# ============================================
+
 @app.post("/api/ai/check-limit")
 async def check_limit(request: CheckLimitRequest):
     return {
@@ -82,44 +134,64 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================
+# ЭНДПОИНТЫ ДЛЯ РАБОТЫ С ПРОМПТАМИ (ВСЕ 4 ТИПА)
+# ============================================
+
 @app.get("/api/ai/prompt/{prompt_type}")
 async def get_prompt(prompt_type: str):
-    if prompt_type not in ["start", "continue"]:
-        raise HTTPException(status_code=400, detail="prompt_type должен быть 'start' или 'continue'")
-    
+    """Получение содержимого промпта"""
     try:
-        file_path = rag.prompt_start_path if prompt_type == "start" else rag.prompt_continue_path
+        file_path = get_prompt_path(prompt_type)
+        metadata = get_prompt_metadata(prompt_type)
+        
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
+        
         return {
             "success": True,
             "prompt_type": prompt_type,
+            "display_name": metadata.get("display_name", prompt_type),
+            "filename": metadata.get("filename", f"{prompt_type}.txt"),
+            "description": metadata.get("description", ""),
             "content": content
         }
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"Файл {prompt_type}.txt не найден")
+        # Если файл не найден, возвращаем пустой контент
+        logger.warning(f"⚠️ Файл промпта не найден: {file_path}")
+        return {
+            "success": True,
+            "prompt_type": prompt_type,
+            "display_name": metadata.get("display_name", prompt_type),
+            "filename": metadata.get("filename", f"{prompt_type}.txt"),
+            "description": metadata.get("description", ""),
+            "content": ""
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/ai/prompt/{prompt_type}")
 async def update_prompt_text(prompt_type: str, request: PromptUpdateRequest):
-    if prompt_type not in ["start", "continue"]:
-        raise HTTPException(status_code=400, detail="prompt_type должен быть 'start' или 'continue'")
-    
+    """Обновление промпта через текст"""
     try:
-        file_path = rag.prompt_start_path if prompt_type == "start" else rag.prompt_continue_path
+        file_path = get_prompt_path(prompt_type)
+        metadata = get_prompt_metadata(prompt_type)
+        
+        # Создаём бэкап
         backup_path = f"{file_path}.backup"
         if os.path.exists(file_path):
             shutil.copy2(file_path, backup_path)
         
+        # Записываем новый контент
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(request.content)
         
         return {
             "success": True,
-            "message": f"Файл {prompt_type}.txt обновлен",
+            "message": f"Файл {metadata.get('filename', prompt_type)} обновлен",
             "prompt_type": prompt_type,
+            "display_name": metadata.get("display_name", prompt_type),
             "backup_created": os.path.exists(backup_path)
         }
     except Exception as e:
@@ -128,26 +200,29 @@ async def update_prompt_text(prompt_type: str, request: PromptUpdateRequest):
 
 @app.post("/api/ai/prompt/{prompt_type}/upload")
 async def upload_prompt_file(prompt_type: str, file: UploadFile = File(...)):
-    if prompt_type not in ["start", "continue"]:
-        raise HTTPException(status_code=400, detail="prompt_type должен быть 'start' или 'continue'")
-    
+    """Загрузка файла промпта (.txt)"""
     if not file.filename.endswith('.txt'):
         raise HTTPException(status_code=400, detail="Файл должен быть в формате .txt")
     
     try:
-        file_path = rag.prompt_start_path if prompt_type == "start" else rag.prompt_continue_path
+        file_path = get_prompt_path(prompt_type)
+        metadata = get_prompt_metadata(prompt_type)
+        
+        # Создаём бэкап
         backup_path = f"{file_path}.backup"
         if os.path.exists(file_path):
             shutil.copy2(file_path, backup_path)
         
+        # Сохраняем новый файл
         content = await file.read()
         with open(file_path, 'wb') as f:
             f.write(content)
         
         return {
             "success": True,
-            "message": f"Файл {prompt_type}.txt обновлен через загрузку",
+            "message": f"Файл {metadata.get('filename', prompt_type)} обновлен через загрузку",
             "prompt_type": prompt_type,
+            "display_name": metadata.get("display_name", prompt_type),
             "filename": file.filename,
             "backup_created": os.path.exists(backup_path)
         }
@@ -157,11 +232,10 @@ async def upload_prompt_file(prompt_type: str, file: UploadFile = File(...)):
 
 @app.post("/api/ai/prompt/{prompt_type}/restore")
 async def restore_prompt_backup(prompt_type: str):
-    if prompt_type not in ["start", "continue"]:
-        raise HTTPException(status_code=400, detail="prompt_type должен быть 'start' или 'continue'")
-    
+    """Восстановление промпта из бэкапа"""
     try:
-        file_path = rag.prompt_start_path if prompt_type == "start" else rag.prompt_continue_path
+        file_path = get_prompt_path(prompt_type)
+        metadata = get_prompt_metadata(prompt_type)
         backup_path = f"{file_path}.backup"
         
         if not os.path.exists(backup_path):
@@ -171,11 +245,49 @@ async def restore_prompt_backup(prompt_type: str):
         
         return {
             "success": True,
-            "message": f"Файл {prompt_type}.txt восстановлен из бэкапа"
+            "message": f"Файл {metadata.get('filename', prompt_type)} восстановлен из бэкапа"
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/api/ai/prompt-types")
+async def get_prompt_types():
+    """Получение списка всех доступных типов промптов"""
+    return {
+        "success": True,
+        "types": [
+            {
+                "value": "start",
+                "display_name": "Начальный промпт (без контекста)",
+                "filename": "chat_start.txt",
+                "description": "Используется, когда нет контекста из базы знаний"
+            },
+            {
+                "value": "continue",
+                "display_name": "Промпт с контекстом",
+                "filename": "chat_continue.txt",
+                "description": "Используется, когда есть контекст из базы знаний"
+            },
+            {
+                "value": "ocr",
+                "display_name": "OCR промпт",
+                "filename": "ocr_prompt.txt",
+                "description": "Используется для извлечения текста из изображений PDF"
+            },
+            {
+                "value": "structure",
+                "display_name": "Промпт структурирования",
+                "filename": "structure_prompt.txt",
+                "description": "Используется для структурирования извлечённого текста"
+            }
+        ]
+    }
+
+
+# ============================================
+# HEALTH CHECK
+# ============================================
 
 @app.get("/api/ai/health")
 async def health():

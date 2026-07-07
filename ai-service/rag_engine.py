@@ -19,15 +19,20 @@ class RAGEngine:
     def __init__(self):
         self.db_path = os.getenv("DB_PATH", "./safety_checklist_db")
         self.gigachat_auth = os.getenv("GIGACHAT_AUTH_DATA")
-        self.prompt_start_path = os.getenv("PROMPT_1_PATH", "./prompt_start.txt")
-        self.prompt_continue_path = os.getenv("PROMPT_2_PATH", "./prompt_continue.txt")
+        
+        # ПУТИ К ПРОМПТАМ (без загрузки содержимого)
+        self.prompt_start_path = os.getenv("PROMPT_1_PATH", "./prompts/chat_start.txt")
+        self.prompt_continue_path = os.getenv("PROMPT_2_PATH", "./prompts/chat_continue.txt")
         
         self.embed_model = os.getenv("GIGACHAT_EMBED_MODEL", "Embeddings")
         self.chat_model = os.getenv("GIGACHAT_CHAT_MODEL", "GigaChat")
         
         logger.info(f"🔍 Путь к БД: {self.db_path}")
         
-        self.client = chromadb.PersistentClient(path=self.db_path,settings=Settings(anonymized_telemetry=False))
+        self.client = chromadb.PersistentClient(
+            path=self.db_path,
+            settings=Settings(anonymized_telemetry=False)
+        )
         try:
             self.collection = self.client.get_collection("safety_checklists")
             logger.info(f"✅ Коллекция найдена. Документов: {self.collection.count()}")
@@ -49,6 +54,15 @@ class RAGEngine:
             model=self.chat_model
         )
         logger.info("✅ GigaChat инициализирован")
+    
+    def _load_prompt(self, path: str) -> str:
+        """Динамическая загрузка промпта из файла при каждом вызове"""
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except FileNotFoundError:
+            logger.warning(f"⚠️ Промпт не найден: {path}")
+            return ""
     
     def search(self, query: str, n_results: int = 3) -> List[Dict[str, Any]]:
         if not self.collection:
@@ -104,6 +118,10 @@ class RAGEngine:
         
         has_context = context and len(context) > 0 and context[0].get("content") and not "Ошибка" in context[0].get("content", "")
         
+        # ДИНАМИЧЕСКАЯ ЗАГРУЗКА ПРОМПТОВ ПРИ КАЖДОМ ВЫЗОВЕ
+        prompt_start = self._load_prompt(self.prompt_start_path)
+        prompt_continue = self._load_prompt(self.prompt_continue_path)
+        
         if has_context:
             context_text = "\n\n".join([
                 f"Источник: {c.get('source', 'Неизвестный')}\n"
@@ -127,7 +145,8 @@ class RAGEngine:
             ])
         
         if has_context:
-            prompt = ''.join([i for i in open(self.prompt_continue_path, encoding='utf-8')]) + f"""
+            # Используем динамически загруженный промпт
+            prompt = prompt_continue + f"""
 
 Источники информации:
 {sources_text}
@@ -148,7 +167,8 @@ class RAGEngine:
 Ответь подробно, ссылаясь на конкретные пункты из документов:
 """
         else:
-            prompt = ''.join([i for i in open(self.prompt_start_path, encoding='utf-8')]) + f"""
+            # Используем динамически загруженный промпт
+            prompt = prompt_start + f"""
 
 Вопрос пользователя: {query}
 
