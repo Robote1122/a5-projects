@@ -6,43 +6,12 @@ const fs = require('fs-extra');
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads/pdfs';
 fs.ensureDirSync(UPLOAD_DIR);
 
-// ⭐ Функция для детального логирования строк
-function logStringDetails(label, str, prefix = '') {
-    if (!str) {
-        console.log(`${prefix}${label}: (пустая строка)`);
-        return;
-    }
-    
-    console.log(`${prefix}${label}: "${str}"`);
-    console.log(`${prefix}  Длина: ${str.length}`);
-    console.log(`${prefix}  Коды символов:`, Array.from(str).map(c => c.charCodeAt(0)));
-    console.log(`${prefix}  Байты (UTF-8):`, Array.from(new TextEncoder().encode(str)));
-    
-    // Пробуем интерпретировать как разные кодировки
-    try {
-        const latin1 = Buffer.from(str, 'latin1').toString('utf8');
-        console.log(`${prefix}  Как Latin-1 → UTF-8: "${latin1}"`);
-    } catch (e) {}
-    
-    try {
-        const win1251 = new TextDecoder('windows-1251').decode(new TextEncoder().encode(str));
-        console.log(`${prefix}  Как Windows-1251: "${win1251}"`);
-    } catch (e) {}
-}
-
 // Настройка хранилища multer
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        console.log('📂 [MULTER] Сохраняем файл в:', UPLOAD_DIR);
         cb(null, UPLOAD_DIR);
     },
-    filename: (req, file, cb) => {
-        console.log('📄 [MULTER] Обработка имени файла');
-        console.log('📄 [MULTER] Заголовки запроса:', req.headers);
-        console.log('📄 [MULTER] Content-Type:', req.headers['content-type']);
-        
-        logStringDetails('originalname от multer', file.originalname, '  ');
-        
+    filename: (req, file, cb) => {        
         // Сохраняем оригинальное имя в req
         req.fileOriginalName = file.originalname;
         
@@ -58,10 +27,6 @@ const storage = multer.diskStorage({
 
 // Фильтр файлов
 const fileFilter = (req, file, cb) => {
-    console.log('🔍 [MULTER] Фильтр файлов');
-    logStringDetails('Имя файла', file.originalname, '  ');
-    console.log('🔍 [MULTER] MIME тип:', file.mimetype);
-    
     const ext = path.extname(file.originalname).toLowerCase();
     const mimeType = file.mimetype;
     

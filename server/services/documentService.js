@@ -12,25 +12,11 @@ const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads/pdfs';
 // Убедимся, что директория существует
 fs.ensureDirSync(UPLOAD_DIR);
 
-function logStringDetails(label, str, prefix = '') {
-    if (!str) {
-        console.log(`${prefix}${label}: (пустая строка)`);
-        return;
-    }
-    console.log(`${prefix}${label}: "${str}"`);
-    console.log(`${prefix}  Длина: ${str.length}`);
-    console.log(`${prefix}  Коды символов:`, Array.from(str).map(c => c.charCodeAt(0)));
-    console.log(`${prefix}  Байты (UTF-8):`, Array.from(new TextEncoder().encode(str)));
-}
-
 class DocumentService {
     /**
      * Загрузка документов с правильной обработкой UTF-8
      */
     async uploadDocuments(files, userId) {
-        console.log('\n📂 [DOCSERVICE] ===== uploadDocuments =====');
-        console.log('📂 [DOCSERVICE] Количество файлов:', files.length);
-        console.log('📂 [DOCSERVICE] User ID:', userId);
         const results = [];
         
         for (const file of files) {

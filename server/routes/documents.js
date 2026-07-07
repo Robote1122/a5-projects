@@ -31,12 +31,6 @@ router.post('/upload',
     upload.array('files', 20),
     handleMulterError,
     async (req, res) => {
-        console.log('\n📤 [ROUTER] ===== POST /api/documents/upload =====');
-        console.log('📤 [ROUTER] User ID:', req.user.id);
-        console.log('📤 [ROUTER] Количество файлов:', req.files?.length || 0);
-        console.log('📤 [ROUTER] Body:', req.body);
-        console.log('📤 [ROUTER] Headers:', req.headers);
-        
         try {
             if (!req.files || req.files.length === 0) {
                 console.log('❌ [ROUTER] Нет файлов');
@@ -48,13 +42,6 @@ router.post('/upload',
             
             // ⭐ Логируем каждый файл
             req.files.forEach((file, index) => {
-                console.log(`\n📄 [ROUTER] Файл #${index + 1}:`);
-                console.log(`  originalname: "${file.originalname}"`);
-                console.log(`  filename: "${file.filename}"`);
-                console.log(`  path: "${file.path}"`);
-                console.log(`  size: ${file.size} байт`);
-                console.log(`  mimetype: "${file.mimetype}"`);
-                
                 logStringDetails('  originalname (детально)', file.originalname);
                 logStringDetails('  filename (детально)', file.filename);
             });

@@ -51,7 +51,7 @@ class PDFProcessor:
             credentials=self.gigachat_auth,
             verify_ssl_certs=False,
             timeout=120,
-            model="GigaChat-Pro"
+            model="GigaChat-Max"
         )
         logger.info("✅ GigaChat Pro инициализирован")
         

@@ -6,48 +6,20 @@ axios.defaults.withCredentials = true;
 
 export const documentsApi = {
     uploadFiles: async (files, customNames) => {
-        console.log('📤 [FRONTEND] Начинаем загрузку файлов');
-        console.log('📤 [FRONTEND] Количество файлов:', files.length);
-        console.log('📤 [FRONTEND] Имена файлов (оригинальные):', files.map(f => ({
-            name: f.name,
-            nameLength: f.name.length,
-            nameChars: Array.from(f.name).map(c => c.charCodeAt(0))
-        })));
-        console.log('📤 [FRONTEND] customNames:', customNames);
-        console.log('📤 [FRONTEND] customNames (JSON):', JSON.stringify(customNames));
-        
         const formData = new FormData();
         
         files.forEach(file => {
-            console.log(`📤 [FRONTEND] Добавляем файл: ${file.name}`);
-            console.log(`📤 [FRONTEND] Размер файла: ${file.size} байт`);
-            console.log(`📤 [FRONTEND] Тип файла: ${file.type}`);
-            
             // ⭐ Показываем байты имени файла
             const encoder = new TextEncoder();
             const bytes = encoder.encode(file.name);
-            console.log(`📤 [FRONTEND] Имя в байтах (UTF-8):`, Array.from(bytes));
             
             formData.append('files', file);
         });
         
         const namesJson = JSON.stringify(customNames);
-        console.log('📤 [FRONTEND] custom_names JSON:', namesJson);
-        console.log('📤 [FRONTEND] custom_names в байтах (UTF-8):', Array.from(new TextEncoder().encode(namesJson)));
         
         formData.append('custom_names', namesJson);
-        
-        // ⭐ Логируем все поля FormData
-        console.log('📤 [FRONTEND] Формируем FormData...');
-        for (let pair of formData.entries()) {
-            if (pair[0] === 'files') {
-                console.log(`📤 [FRONTEND] FormData: ${pair[0]} = ${pair[1].name} (${pair[1].size} bytes)`);
-            } else {
-                console.log(`📤 [FRONTEND] FormData: ${pair[0]} = ${pair[1]}`);
-            }
-        }
-        
-        console.log('📤 [FRONTEND] Отправляем запрос на /api/documents/upload');
+
         
         try {
             const response = await axios.post(`${BASE}/upload`, formData, {
@@ -55,8 +27,6 @@ export const documentsApi = {
                     'Content-Type': 'multipart/form-data',
                 },
             });
-            
-            console.log('📥 [FRONTEND] Ответ получен:', response.data);
             return response.data;
         } catch (error) {
             console.error('❌ [FRONTEND] Ошибка загрузки:', {
