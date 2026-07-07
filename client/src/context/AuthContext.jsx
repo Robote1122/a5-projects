@@ -1,9 +1,6 @@
-/**
- * context/AuthContext.jsx
- * Контекст для управления состоянием авторизации
- */
+// context/AuthContext.jsx
 
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useRef } from 'react';
 import axios from 'axios';
 
 const AuthContext = createContext(null);
@@ -14,38 +11,61 @@ export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const isLoggingOutRef = useRef(false);
+    const authCheckedRef = useRef(false);
 
     axios.defaults.withCredentials = true;
 
-    // Проверка авторизации при загрузке
     useEffect(() => {
         console.log('🔍 [AuthProvider] Проверка авторизации при монтировании');
-        checkAuth();
+        if (!authCheckedRef.current && !isLoggingOutRef.current) {
+            checkAuth();
+        }
     }, []);
 
     const checkAuth = async () => {
+        if (authCheckedRef.current && !isLoggingOutRef.current) {
+            console.log('🔍 [checkAuth] Уже проверено, пропускаем');
+            return isAuthenticated;
+        }
+        
         console.log('🔍 [checkAuth] Начинаем проверку авторизации...');
         setLoading(true);
         try {
-            const response = await axios.get('/api/auth/me');
-            console.log('🔍 [checkAuth] Ответ от /api/auth/me:', response.data);
+            // ⭐ Используем validateStatus, чтобы не выбрасывать исключение для 401
+            const response = await axios.get('/api/auth/me', {
+                validateStatus: (status) => status < 500 // ✅ 401 и 404 не будут выбрасывать ошибку
+            });
             
-            if (response.data.success) {
+            console.log('🔍 [checkAuth] Статус ответа:', response.status);
+            console.log('🔍 [checkAuth] Данные ответа:', response.data);
+            
+            // ⭐ Проверяем статус и данные
+            if (response.status === 200 && response.data?.success) {
                 console.log('✅ [checkAuth] Пользователь авторизован:', response.data.data);
                 setUser(response.data.data);
+                setIsAuthenticated(true);
+                authCheckedRef.current = true;
                 return true;
             } else {
-                console.log('❌ [checkAuth] Не авторизован (success: false)');
+                // ⭐ Сюда попадаем при 401 или если success: false
+                console.log('❌ [checkAuth] Не авторизован (статус:', response.status, ')');
                 setUser(null);
+                setIsAuthenticated(false);
+                authCheckedRef.current = true;
                 return false;
             }
         } catch (err) {
-            console.error('❌ [checkAuth] Ошибка при проверке авторизации:', {
+            // ⭐ Сюда попадаем только при реальных ошибках (500, network error и т.д.)
+            console.error('❌ [checkAuth] Критическая ошибка:', {
                 status: err.response?.status,
                 data: err.response?.data,
                 message: err.message
             });
             setUser(null);
+            setIsAuthenticated(false);
+            authCheckedRef.current = true;
             return false;
         } finally {
             setLoading(false);
@@ -57,6 +77,7 @@ export const AuthProvider = ({ children }) => {
         console.log('🔑 [login] Попытка входа с email:', email);
         setError(null);
         setLoading(true);
+        isLoggingOutRef.current = false;
         try {
             const response = await axios.post('/api/auth/login', { email, password });
             console.log('🔑 [login] Ответ от /api/auth/login:', response.data);
@@ -64,6 +85,8 @@ export const AuthProvider = ({ children }) => {
             if (response.data.success) {
                 console.log('✅ [login] Вход успешен, пользователь:', response.data.data.user);
                 setUser(response.data.data.user);
+                setIsAuthenticated(true);
+                authCheckedRef.current = true;
                 return { success: true };
             }
             return { success: false, error: 'Ошибка входа' };
@@ -79,12 +102,22 @@ export const AuthProvider = ({ children }) => {
 
     const logout = async () => {
         console.log('🚪 [logout] Выход из системы');
+        isLoggingOutRef.current = true;
+        authCheckedRef.current = false;
+        
+        // ⭐ Сразу сбрасываем состояние
+        setUser(null);
+        setIsAuthenticated(false);
+        
         try {
             await axios.post('/api/auth/logout');
-            setUser(null);
         } catch (err) {
             console.error('❌ [logout] Ошибка при выходе:', err);
-            setUser(null);
+        } finally {
+            // ⭐ Сбрасываем флаг через задержку
+            setTimeout(() => {
+                isLoggingOutRef.current = false;
+            }, 200);
         }
     };
 
@@ -95,7 +128,7 @@ export const AuthProvider = ({ children }) => {
         login,
         logout,
         checkAuth,
-        isAuthenticated: !!user,
+        isAuthenticated,
         isAdmin: user?.role === 'ADMIN',
     };
 

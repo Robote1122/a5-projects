@@ -3,7 +3,7 @@
  * Страница входа
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -15,17 +15,19 @@ export default function LoginPage() {
     const { user, login, error, isAuthenticated, checkAuth } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
+    const authCheckedRef = useRef(false); // ⭐ Флаг для предотвращения повторных проверок
 
     console.log('📄 [LoginPage] Рендер', { 
         isAuthenticated, 
-        user: user?.email || 'нет'
+        user: user?.email || 'нет',
+        authChecked: authCheckedRef.current
     });
 
-    // Проверяем авторизацию при загрузке страницы логина
+    // Проверяем авторизацию только один раз при загрузке
     useEffect(() => {
         console.log('📄 [LoginPage] Проверка авторизации на странице логина');
         
-        // Если уже авторизованы — редирект
+        // ⭐ Если уже авторизованы — редирект
         if (isAuthenticated) {
             const from = location.state?.from || '/';
             console.log('📄 [LoginPage] Уже авторизован, редирект на:', from);
@@ -33,17 +35,21 @@ export default function LoginPage() {
             return;
         }
         
-        // Проверяем cookie через checkAuth
-        const verifyAuth = async () => {
-            const isAuth = await checkAuth();
-            if (isAuth) {
-                const from = location.state?.from || '/';
-                console.log('📄 [LoginPage] Авторизация подтверждена, редирект на:', from);
-                navigate(from, { replace: true });
-            }
-        };
-        
-        verifyAuth();
+        // ⭐ Проверяем только если ещё не проверяли и не в процессе логаута
+        if (!authCheckedRef.current) {
+            authCheckedRef.current = true;
+            
+            const verifyAuth = async () => {
+                const isAuth = await checkAuth();
+                if (isAuth) {
+                    const from = location.state?.from || '/';
+                    console.log('📄 [LoginPage] Авторизация подтверждена, редирект на:', from);
+                    navigate(from, { replace: true });
+                }
+            };
+            
+            verifyAuth();
+        }
     }, [isAuthenticated, checkAuth, navigate, location]);
 
     // Реагируем на изменение isAuthenticated
@@ -66,11 +72,11 @@ export default function LoginPage() {
 
         if (!result.success) {
             setLocalError(result.error || 'Ошибка входа');
+            authCheckedRef.current = false; // ⭐ Разрешаем повторную проверку при ошибке
         }
-        // Если успех — useEffect сработает на isAuthenticated
     };
 
-    // Если уже авторизованы — показываем загрузку (предотвращаем мигание)
+    // Если уже авторизованы — показываем загрузку
     if (isAuthenticated) {
         return (
             <div style={styles.container}>

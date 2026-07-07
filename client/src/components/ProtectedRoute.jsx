@@ -1,15 +1,13 @@
-/**
- * components/ProtectedRoute.jsx
- * Защита маршрутов от неавторизованного доступа
- */
+// components/ProtectedRoute.jsx
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export default function ProtectedRoute({ children, requireAdmin = false }) {
     const { isAuthenticated, loading, user, checkAuth } = useAuth();
     const location = useLocation();
+    const checkRef = useRef(false); // ⭐ Флаг для предотвращения повторных проверок
 
     console.log('🛡️ [ProtectedRoute] Рендер', {
         isAuthenticated,
@@ -19,10 +17,11 @@ export default function ProtectedRoute({ children, requireAdmin = false }) {
         requireAdmin
     });
 
-    // Проверяем авторизацию при загрузке защищённого маршрута
+    // Проверяем авторизацию только один раз
     useEffect(() => {
         console.log('🛡️ [ProtectedRoute] Проверка авторизации');
-        if (!isAuthenticated && !loading) {
+        if (!isAuthenticated && !loading && !checkRef.current) {
+            checkRef.current = true;
             checkAuth();
         }
     }, [isAuthenticated, loading, checkAuth]);
