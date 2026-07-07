@@ -15,16 +15,16 @@ import hashlib
 logger = logging.getLogger(__name__)
 
 class PDFProcessor:
-    """Обработчик PDF с извлечением текста через OpenRouter Vision API и структурированием через GigaChat Pro"""
+    """Обработчик PDF с извлечением текста через RouterAI Vision API и структурированием через GigaChat Pro"""
     
     def __init__(self):
-        # Настройки OpenRouter для OCR
-        self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY", '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')
-        self.openrouter_base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-        self.openrouter_model = os.getenv("OPENROUTER_MODEL", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")
+        # Настройки RouterAI для OCR
+        self.routerai_api_key = os.getenv("ROUTERAI_API_KEY", 'sk-zPQd___OIws0MFqtm7NtNflQQ4Habea8')
+        self.routerai_base_url = os.getenv("ROUTERAI_BASE_URL", "https://routerai.ru/api/v1")
+        self.routerai_model = os.getenv("ROUTERAI_MODEL", "meta-llama/llama-3.2-11b-vision-instruct")
         self.dpi = int(os.getenv("OCR_DPI", 200))
         
-        # ПУТИ К ПРОМПТАМ (без загрузки содержимого)
+        # Загрузка промптов
         self.ocr_prompt_path = os.getenv("OCR_PROMPT_PATH", "./prompts/ocr_prompt.txt")
         self.structure_prompt_path = os.getenv("STRUCTURE_PROMPT_PATH", "./prompts/structure_prompt.txt")
         
@@ -33,16 +33,16 @@ class PDFProcessor:
         self.chunk_size = int(os.getenv("CHUNK_SIZE", 500))
         self.chunk_overlap = int(os.getenv("CHUNK_OVERLAP", 100))
         
-        # Инициализация OpenRouter клиента
-        logger.info("🔗 Подключение к OpenRouter Vision API...")
-        if not self.openrouter_api_key:
-            raise ValueError("OPENROUTER_API_KEY не задан в .env")
+        # Инициализация RouterAI клиента (совместим с OpenAI)
+        logger.info("🔗 Подключение к RouterAI Vision API...")
+        if not self.routerai_api_key:
+            raise ValueError("ROUTERAI_API_KEY не задан в .env")
         
-        self.openrouter_client = OpenAI(
-            api_key=self.openrouter_api_key,
-            base_url=self.openrouter_base_url
+        self.routerai_client = OpenAI(
+            api_key=self.routerai_api_key,
+            base_url=self.routerai_base_url
         )
-        logger.info(f"✅ OpenRouter клиент инициализирован (модель: {self.openrouter_model})")
+        logger.info(f"✅ RouterAI клиент инициализирован (модель: {self.routerai_model})")
         
         # Инициализация GigaChat Pro для структурирования
         logger.info("🔗 Подключение к GigaChat Pro...")
@@ -65,19 +65,19 @@ class PDFProcessor:
         logger.info("✅ GigaChat Embeddings инициализирован")
     
     def _load_prompt(self, path: str) -> str:
-        """Динамическая загрузка промпта из файла при каждом вызове"""
+        """Динамическая загрузка промпта из файла"""
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 return f.read()
         except FileNotFoundError:
-            logger.warning(f"⚠️ Промпт не найден: {path}, использую дефолтный")
+            logger.warning(f"⚠️ Промпт не найден: {path}")
             return ""
     
     def extract_text_from_pdf(self, pdf_path: str) -> str:
-        """Извлечение текста из PDF через OpenRouter Vision API (постранично)"""
-        logger.info(f"📄 Извлечение текста из {pdf_path} через OpenRouter Vision API")
+        """Извлечение текста из PDF через RouterAI Vision API (постранично)"""
+        logger.info(f"📄 Извлечение текста из {pdf_path} через RouterAI Vision API")
         
-        # ДИНАМИЧЕСКАЯ ЗАГРУЗКА OCR ПРОМПТА
+        # Динамическая загрузка OCR промпта
         ocr_prompt = self._load_prompt(self.ocr_prompt_path)
         if not ocr_prompt:
             ocr_prompt = "Извлеки весь текст с этой страницы документа. Сохраняй структуру."
@@ -103,9 +103,9 @@ class PDFProcessor:
                 page.save(buf, format="PNG")
                 image_base64 = base64.b64encode(buf.getvalue()).decode()
                 
-                # Отправляем запрос в OpenRouter
-                response = self.openrouter_client.chat.completions.create(
-                    model=self.openrouter_model,
+                # Отправляем запрос в RouterAI (совместим с OpenAI форматом)
+                response = self.routerai_client.chat.completions.create(
+                    model=self.routerai_model,
                     messages=[
                         {
                             "role": "user",
@@ -150,13 +150,13 @@ class PDFProcessor:
         """Структурирование текста через GigaChat Pro"""
         logger.info("🧠 Структурирование текста через GigaChat Pro...")
         
-        # ДИНАМИЧЕСКАЯ ЗАГРУЗКА ПРОМПТА СТРУКТУРИРОВАНИЯ
+        # Динамическая загрузка промпта структурирования
         structure_prompt = self._load_prompt(self.structure_prompt_path)
         if not structure_prompt:
             structure_prompt = "Разбей текст на логические блоки. Верни JSON массив с полями title, content, keywords."
         
         # Обрезаем текст если слишком длинный
-        text_for_prompt = text[:15000]  # Ограничиваем для API
+        text_for_prompt = text[:15000]
         if len(text) > 15000:
             logger.warning(f"⚠️ Текст обрезан с {len(text)} до 15000 символов")
         
@@ -304,7 +304,7 @@ class PDFProcessor:
         logger.info(f"🔄 Обработка PDF: {custom_name} (ID: {document_id})")
         
         try:
-            # 1. Извлечение текста через OpenRouter Vision API
+            # 1. Извлечение текста через RouterAI Vision API
             raw_text = self.extract_text_from_pdf(pdf_path)
             
             # 2. Структурирование через GigaChat Pro

@@ -11,7 +11,6 @@ const pool = require('../db');
  */
 async function authenticate(req, res, next) {
     console.log('\n🛡️ ====== AUTH MIDDLEWARE ======\n');
-    #console.log(req)
     
     let token = null;
     

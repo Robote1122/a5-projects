@@ -21,8 +21,8 @@ class RAGEngine:
         self.gigachat_auth = os.getenv("GIGACHAT_AUTH_DATA")
         
         # ПУТИ К ПРОМПТАМ (без загрузки содержимого)
-        self.prompt_start_path = os.getenv("PROMPT_1_PATH", "./prompts/chat_start.txt")
-        self.prompt_continue_path = os.getenv("PROMPT_2_PATH", "./prompts/chat_continue.txt")
+        self.prompt_start_path = os.getenv("PROMPT_1_PATH", "./prompts/prompt_start.txt")
+        self.prompt_continue_path = os.getenv("PROMPT_2_PATH", "./prompts/prompt_continue.txt")
         
         self.embed_model = os.getenv("GIGACHAT_EMBED_MODEL", "Embeddings")
         self.chat_model = os.getenv("GIGACHAT_CHAT_MODEL", "GigaChat")
