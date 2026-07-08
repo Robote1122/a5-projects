@@ -16,6 +16,7 @@ const authRouter = require('./routes/auth');
 const promptsRouter = require('./routes/prompts');
 const errorHandler = require('./middleware/errorHandler');
 const documentsRouter = require('./routes/documents');
+const settingsRouter = require('./routes/settings');
 
 const app = express();
 const PORT = process.env.PORT || 8001;
@@ -45,6 +46,7 @@ app.use('/api/chats', chatsRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/prompts', promptsRouter);
 app.use('/api/documents', documentsRouter);
+app.use('/api/settings', settingsRouter);
 
 /* ─── Health check ───────────────────────────────────── */
 app.get('/api/health', (_req, res) => {

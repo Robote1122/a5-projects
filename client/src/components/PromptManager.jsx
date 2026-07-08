@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { promptsApi } from '../api/prompts.js';
 import { documentsApi } from '../api/documents.js';
 import { useAuth } from '../context/AuthContext';
+import axios from 'axios';
 
 const MAX_FILES = 20;
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
@@ -31,6 +32,13 @@ export default function PromptManager() {
     const [docError, setDocError] = useState(null);
     const [docSuccess, setDocSuccess] = useState(null);
     
+    // ⭐ Состояние для моделей
+    const [currentModel, setCurrentModel] = useState('');
+    const [availableModels, setAvailableModels] = useState([]);
+    const [embedModel, setEmbedModel] = useState('');
+    const [modelLoading, setModelLoading] = useState(false);
+    const [modelMessage, setModelMessage] = useState({ type: '', text: '' });
+    
     const fileInputRef = useRef(null);
     const dragCounterRef = useRef(0);
     const modalRef = useRef(null);
@@ -43,6 +51,32 @@ export default function PromptManager() {
         { value: 'structure', label: 'Промпт структурирования' },
         { value: 'ocr', label: 'OCR промпт' },
     ];
+
+    // ⭐ Загрузка текущей модели
+    const loadModels = async () => {
+        if (!isAdmin) return;
+        setModelLoading(true);
+        try {
+            const response = await axios.get('/api/ai/settings/status');
+            if (response.data.success) {
+                setCurrentModel(response.data.current_model || 'GigaChat-Pro');
+                setEmbedModel(response.data.embed_model || 'Embeddings');
+                
+                // Получаем список доступных моделей
+                const modelsResponse = await axios.get('/api/ai/settings/models');
+                if (modelsResponse.data.success) {
+                    setAvailableModels(modelsResponse.data.available_models || []);
+                }
+            }
+        } catch (error) {
+            console.error('❌ Ошибка загрузки моделей:', error);
+            // Значения по умолчанию
+            setCurrentModel('GigaChat-Pro');
+            setAvailableModels(['GigaChat-Pro', 'GigaChat-Max', 'GigaChat-Lite', 'GigaChat']);
+        } finally {
+            setModelLoading(false);
+        }
+    };
 
     // Загрузка промпта
     const loadPrompt = async (type) => {
@@ -86,6 +120,7 @@ export default function PromptManager() {
             loadPrompt(promptType);
             if (isAdmin) {
                 loadDocuments();
+                loadModels();
             }
         }
     }, [isOpen, promptType, isAdmin]);
@@ -100,6 +135,35 @@ export default function PromptManager() {
             if (interval) clearInterval(interval);
         };
     }, [isOpen, isAdmin, activeTab]);
+
+    // ⭐ Смена модели
+    const changeModel = async (model) => {
+        if (!isAdmin) return;
+        setModelLoading(true);
+        setModelMessage({ type: '', text: '' });
+        
+        try {
+            // Обновляем в БД через бэкенд
+            await axios.put('/api/settings/gigachat_model', { value: model });
+            
+            // Ждем применения
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            
+            // Обновляем статус
+            await loadModels();
+            setModelMessage({ 
+                type: 'success', 
+                text: `✅ Модель изменена на ${model}` 
+            });
+        } catch (error) {
+            setModelMessage({ 
+                type: 'error', 
+                text: `❌ Ошибка: ${error.response?.data?.error || error.message}` 
+            });
+        } finally {
+            setModelLoading(false);
+        }
+    };
 
     // Обработка выбора файлов
     const handleFileSelect = (files) => {
@@ -348,6 +412,7 @@ export default function PromptManager() {
         setDocError(null);
         setDocSuccess(null);
         setMessage({ type: '', text: '' });
+        setModelMessage({ type: '', text: '' });
     };
 
     // Кнопка открытия
@@ -411,12 +476,19 @@ export default function PromptManager() {
                             >
                                 📚 Документы ({documents.filter(d => d.status !== 'deleted').length})
                             </button>
+                            <button
+                                style={{ ...styles.tabButton, ...(activeTab === 'models' ? styles.tabButtonActive : {}) }}
+                                onClick={() => setActiveTab('models')}
+                            >
+                                🤖 Модели
+                            </button>
                         </div>
 
                         {/* Контент вкладок */}
                         <div style={styles.tabContent}>
                             {activeTab === 'prompts' && renderPromptsTab()}
                             {activeTab === 'documents' && renderDocumentsTab()}
+                            {activeTab === 'models' && renderModelsTab()}
                         </div>
                     </div>
                 </div>
@@ -664,6 +736,121 @@ export default function PromptManager() {
                         })
                     )}
                 </div>
+            </div>
+        );
+    }
+
+    // ===== ВКЛАДКА МОДЕЛЕЙ =====
+    function renderModelsTab() {
+        return (
+            <div style={styles.modelsContainer}>
+                <div style={styles.modelsHeader}>
+                    <h4>🤖 Управление моделями GigaChat</h4>
+                    <p style={styles.modelsSubtitle}>
+                        Текущая модель используется для структурирования PDF и генерации ответов
+                    </p>
+                </div>
+
+                {modelLoading && !currentModel ? (
+                    <div style={styles.loading}>Загрузка моделей...</div>
+                ) : (
+                    <>
+                        {/* Текущий статус */}
+                        <div style={styles.currentModelInfo}>
+                            <div style={styles.modelStatus}>
+                                <span style={styles.modelLabel}>Текущая модель:</span>
+                                <span style={styles.modelValue}>{currentModel || 'GigaChat-Pro'}</span>
+                            </div>
+                            <div style={styles.modelStatus}>
+                                <span style={styles.modelLabel}>Модель эмбеддингов:</span>
+                                <span style={styles.modelValue}>{embedModel || 'Embeddings'}</span>
+                            </div>
+                        </div>
+
+                        {/* Сообщения */}
+                        {modelMessage.text && (
+                            <div style={{
+                                ...styles.message,
+                                ...(modelMessage.type === 'error' ? styles.messageError : styles.messageSuccess)
+                            }}>
+                                {modelMessage.text}
+                            </div>
+                        )}
+
+                        {/* Список моделей */}
+                        <div style={styles.modelsGrid}>
+                            <p style={styles.modelsLabel}>Доступные модели для чата:</p>
+                            <div style={styles.modelsButtons}>
+                                {availableModels.length > 0 ? (
+                                    availableModels.map((model) => (
+                                        <button
+                                            key={model}
+                                            style={{
+                                                ...styles.modelButton,
+                                                ...(model === currentModel ? styles.modelButtonActive : {})
+                                            }}
+                                            onClick={() => changeModel(model)}
+                                            disabled={modelLoading || model === currentModel}
+                                        >
+                                            {model === currentModel ? '✅ ' : ''}
+                                            {model}
+                                            {model === currentModel && ' (активна)'}
+                                        </button>
+                                    ))
+                                ) : (
+                                    <>
+                                        <button
+                                            style={{
+                                                ...styles.modelButton,
+                                                ...('GigaChat-Pro' === currentModel ? styles.modelButtonActive : {})
+                                            }}
+                                            onClick={() => changeModel('GigaChat-Pro')}
+                                            disabled={modelLoading || 'GigaChat-Pro' === currentModel}
+                                        >
+                                            {modelLoading ? '⏳' : '🚀'} GigaChat-Pro
+                                        </button>
+                                        <button
+                                            style={{
+                                                ...styles.modelButton,
+                                                ...('GigaChat-Max' === currentModel ? styles.modelButtonActive : {})
+                                            }}
+                                            onClick={() => changeModel('GigaChat-Max')}
+                                            disabled={modelLoading || 'GigaChat-Max' === currentModel}
+                                        >
+                                            {modelLoading ? '⏳' : '🚀'} GigaChat-Max
+                                        </button>
+                                        <button
+                                            style={{
+                                                ...styles.modelButton,
+                                                ...('GigaChat-Lite' === currentModel ? styles.modelButtonActive : {})
+                                            }}
+                                            onClick={() => changeModel('GigaChat-Lite')}
+                                            disabled={modelLoading || 'GigaChat-Lite' === currentModel}
+                                        >
+                                            {modelLoading ? '⏳' : '🚀'} GigaChat-Lite
+                                        </button>
+                                        <button
+                                            style={{
+                                                ...styles.modelButton,
+                                                ...('GigaChat' === currentModel ? styles.modelButtonActive : {})
+                                            }}
+                                            onClick={() => changeModel('GigaChat')}
+                                            disabled={modelLoading || 'GigaChat' === currentModel}
+                                        >
+                                            {modelLoading ? '⏳' : '🚀'} GigaChat (обычная)
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+
+                        <div style={styles.modelHint}>
+                            <small>💡 Изменение модели применяется мгновенно, без перезапуска контейнеров</small>
+                            <br />
+                            <small>🔄 Новая модель будет использоваться для всех следующих запросов</small>
+                        </div>
+                    </>
+                )}
             </div>
         );
     }
@@ -1130,5 +1317,85 @@ const styles = {
         ':hover': {
             background: 'rgba(239,68,68,0.1)',
         },
+    },
+
+    // Модели
+    modelsContainer: {
+        padding: '4px 0',
+    },
+    modelsHeader: {
+        marginBottom: '16px',
+    },
+    modelsSubtitle: {
+        fontSize: '13px',
+        color: 'var(--text-muted)',
+        marginTop: '4px',
+    },
+    currentModelInfo: {
+        background: 'var(--bg-input)',
+        borderRadius: '8px',
+        padding: '12px 16px',
+        marginBottom: '16px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '6px',
+    },
+    modelStatus: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        fontSize: '14px',
+    },
+    modelLabel: {
+        color: 'var(--text-muted)',
+    },
+    modelValue: {
+        fontWeight: 600,
+        color: 'var(--text-primary)',
+    },
+    modelsGrid: {
+        marginBottom: '16px',
+    },
+    modelsLabel: {
+        fontSize: '13px',
+        color: 'var(--text-secondary)',
+        marginBottom: '8px',
+    },
+    modelsButtons: {
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: '8px',
+    },
+    modelButton: {
+        padding: '8px 16px',
+        borderRadius: '8px',
+        background: 'var(--bg-input)',
+        color: 'var(--text-secondary)',
+        border: '1px solid var(--border)',
+        cursor: 'pointer',
+        transition: 'all 0.2s',
+        fontSize: '13px',
+        ':hover': {
+            background: 'var(--bg-hover)',
+            borderColor: 'var(--accent)',
+        },
+        ':disabled': {
+            opacity: 0.5,
+            cursor: 'not-allowed',
+        },
+    },
+    modelButtonActive: {
+        background: 'var(--accent)',
+        color: '#fff',
+        borderColor: 'var(--accent)',
+        ':hover': {
+            background: 'var(--accent-hover)',
+        },
+    },
+    modelHint: {
+        padding: '10px 0',
+        fontSize: '12px',
+        color: 'var(--text-muted)',
+        lineHeight: '1.8',
     },
 };

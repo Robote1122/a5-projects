@@ -11,6 +11,8 @@ import logging
 
 from rag_engine import RAGEngine
 from routers import documents
+from routers import settings
+
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -20,6 +22,7 @@ app = FastAPI(title="Vzmakh Chat AI Service")
 
 # Подключаем роутеры
 app.include_router(documents.router)
+app.include_router(settings.router)
 
 # Инициализация RAG
 rag = RAGEngine()
