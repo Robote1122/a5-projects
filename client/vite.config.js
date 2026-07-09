@@ -9,7 +9,15 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8001',
         changeOrigin: true,
-      },
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq, req) => {
+            // Проксируем cookie
+            if (req.headers.cookie) {
+              proxyReq.setHeader('Cookie', req.headers.cookie);
+            }
+          });
+        }
+      }
     },
   },
   build: {

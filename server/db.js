@@ -1,46 +1,41 @@
-/**
- * db.js
- * Singleton подключение к SQLite через встроенный модуль node:sqlite (Node.js 22+).
- * Не требует внешних зависимостей / компиляции.
- */
-
+// server/db.js
+const { Pool } = require('pg');
 require('dotenv').config();
-const { DatabaseSync } = require('node:sqlite');
-const path = require('path');
-const fs = require('fs');
 
-const dbPath = process.env.DB_PATH || './data/chat.db';
-const dir = path.dirname(path.resolve(dbPath));
+const pool = new Pool({
+    host: process.env.POSTGRES_HOST || 'localhost',
+    port: parseInt(process.env.POSTGRES_PORT || '5432'),
+    user: process.env.POSTGRES_USER || 'chat_user',
+    password: process.env.POSTGRES_PASSWORD,
+    database: process.env.POSTGRES_DATABASE || 'chat_app',
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000,
+});
 
-if (!fs.existsSync(dir)) {
-  fs.mkdirSync(dir, { recursive: true });
-}
+// ⭐ КРИТИЧЕСКИ ВАЖНО: Устанавливаем кодировку клиента при каждом подключении
+pool.on('connect', async (client) => {
+    try {
+        await client.query("SET client_encoding = 'UTF8'");
+        await client.query("SET standard_conforming_strings = on");
+        console.log('✅ PostgreSQL клиент настроен: client_encoding = UTF8');
+    } catch (err) {
+        console.error('❌ Ошибка настройки клиента PostgreSQL:', err.message);
+    }
+});
 
-const db = new DatabaseSync(dbPath);
+// Логирование событий
+pool.on('connect', () => {
+    console.log('✅ PostgreSQL подключен');
+});
 
-// WAL режим — быстрее для конкурентных операций
-db.exec('PRAGMA journal_mode = WAL;');
-db.exec('PRAGMA foreign_keys = ON;');
+pool.on('error', (err) => {
+    console.error('❌ Ошибка PostgreSQL:', err.message);
+});
 
-// Авто-миграция при первом запуске
-db.exec(`
-  CREATE TABLE IF NOT EXISTS chats (
-    id         TEXT PRIMARY KEY,
-    title      TEXT NOT NULL DEFAULT 'Новый чат',
-    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-    updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-  );
+// Тестовый запрос при первом подключении
+pool.query('SELECT NOW()')
+    .then(() => console.log('✅ PostgreSQL готов к работе'))
+    .catch(err => console.error('❌ Ошибка подключения к PostgreSQL:', err.message));
 
-  CREATE TABLE IF NOT EXISTS messages (
-    id         TEXT PRIMARY KEY,
-    chat_id    TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
-    role       TEXT NOT NULL CHECK(role IN ('user','assistant','system')),
-    content    TEXT NOT NULL,
-    created_at INTEGER NOT NULL DEFAULT (unixepoch())
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id);
-  CREATE INDEX IF NOT EXISTS idx_chats_updated_at ON chats(updated_at);
-`);
-
-module.exports = db;
+module.exports = pool;

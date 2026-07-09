@@ -1,0 +1,133 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # POSTGRESQL БАЗА ДАННЫХ
+  # ============================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: chat-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-chat_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_password_here}
+      POSTGRES_DB: ${POSTGRES_DB:-chat_app}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=ru_RU.UTF-8"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:5432:5432"
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-chat_user} -d ${POSTGRES_DB:-chat_app}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # NODE.JS БЭКЕНД (порт 8001)
+  # ============================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chat-backend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=8001
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-chat_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-secure_password_here}
+      - POSTGRES_DATABASE=${POSTGRES_DB:-chat_app}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
+      - AI_ENABLED=${AI_ENABLED:-true}
+      - AI_SERVICE_URL=http://ai-service:8002
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      - UPLOAD_DIR=/app/uploads/pdfs
+    ports:
+      - "127.0.0.1:8001:8001"
+    volumes:
+      - ./server/data:/app/data
+      - ./server/uploads:/app/uploads
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ai-service:
+        condition: service_started
+    networks:
+      - app-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # PYTHON AI СЕРВИС (порт 8002)
+  # ============================================
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: chat-ai
+    restart: unless-stopped
+    environment:
+      - LANG=ru_RU.UTF-8
+      - LC_ALL=ru_RU.UTF-8
+      - PYTHONIOENCODING=utf-8
+      - PORT=8002
+      # GigaChat
+      - GIGACHAT_AUTH_DATA=${GIGACHAT_AUTH_DATA}
+      - GIGACHAT_EMBED_MODEL=${GIGACHAT_EMBED_MODEL:-Embeddings}
+      - GIGACHAT_CHAT_MODEL=${GIGACHAT_CHAT_MODEL:-GigaChat}
+      # RouterAI (вместо OpenRouter)
+      - ROUTERAI_API_KEY=${ROUTERAI_API_KEY:-sk-zPQd___OIws0MFqtm7NtNflQQ4Habea8}
+      - ROUTERAI_BASE_URL=${ROUTERAI_BASE_URL:-https://routerai.ru/api/v1}
+      - ROUTERAI_MODEL=${ROUTERAI_MODEL:-nvidia/nemotron-3-nano-30b-a3b}
+      - OCR_DPI=${OCR_DPI:-200}
+      # Пути к промптам
+      - OCR_PROMPT_PATH=/app/prompts/ocr_prompt.txt
+      - STRUCTURE_PROMPT_PATH=/app/prompts/structure_prompt.txt
+      - PROMPT_START_PATH=/app/prompts/chat_start.txt
+      - PROMPT_CONTINUE_PATH=/app/prompts/chat_continue.txt
+      # ChromaDB
+      - DB_PATH=/app/data/safety_checklist_db
+      - COLLECTION_NAME=safety_checklists
+      # Настройки чанкинга
+      - CHUNK_SIZE=${CHUNK_SIZE:-500}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-100}
+      # Временная директория
+      - TEMP_DIR=/app/temp_uploads
+    ports:
+      - "127.0.0.1:8002:8002"
+    volumes:
+      - ./ai-service/data:/app/data
+      - ./ai-service/prompts:/app/prompts
+      - ./ai-service/temp_uploads:/app/temp_uploads
+    networks:
+      - app-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# ============================================
+# VOLUMES
+# ============================================
+volumes:
+  postgres_data:
+    driver: local
+
+# ============================================
+# NETWORKS
+# ============================================
+networks:
+  app-network:
+    driver: bridge

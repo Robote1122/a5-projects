@@ -5,4 +5,23 @@ server/data/*.db-wal
 client/dist/
 logs/
 .env.github
+
+# Env файлы
+.env
+.env.local
+.env.*.local
+
+# Docker volumes
+postgres_data/
+server/data/
+ai-service/data/
+logs/
+
+# Логи
 *.log
+logs/
+pm2-*.log
+
+# Backup файлы
+*.backup
+*.bak

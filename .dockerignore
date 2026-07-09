@@ -1,0 +1,55 @@
+# Зависимости
+node_modules/
+
+# Логи
+*.log
+logs/
+
+# Файлы окружения
+.env
+.env.*
+!.env.example
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Данные
+server/data/
+ai-service/data/
+ai-service/safety_checklist_db/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+env/
+
+# Сборки
+dist/
+build/
+*.tar.gz
+
+# Документация
+*.md
+!docs/API.md
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# PM2
+logs/
+pm2-*.log
+.pm2/
